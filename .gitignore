@@ -1,0 +1,9 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+*.jks
+*.keystore
+.idea/
+gradle/wrapper/gradle-wrapper.jar
+gradle/wrapper/gradle-wrapper.jar.tmp.*
