@@ -10,20 +10,27 @@ import org.json.JSONObject
 import org.openrecorder.app.core.*
 import org.vosk.Model
 import org.vosk.Recognizer
+import org.vosk.SpeakerModel
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.zip.ZipInputStream
 
 object LocalSpeech {
     private val lock = Mutex()
-    fun modelDir(context: Context) = File(context.filesDir,"speech-model").also { current ->
-        val backup = File(context.filesDir,"speech-model-old")
+    fun modelDir(context: Context) = installed(context, "speech-model")
+    fun speakerDir(context: Context) = installed(context, "speaker-model")
+    private fun installed(context: Context, name: String) = File(context.filesDir, name).also { current ->
+        val backup = File(context.filesDir, "$name-old")
         if(!current.exists() && backup.exists()) check(backup.renameTo(current))
     }
     fun available(context: Context) = File(modelDir(context),"am/final.mdl").isFile
+    fun speakerAvailable(context: Context) = isSpeakerModel(speakerDir(context))
+    private fun isSpeechModel(dir: File) = File(dir,"am/final.mdl").isFile && File(dir,"conf/model.conf").isFile
+    private fun isSpeakerModel(dir: File) = File(dir,"final.ext.raw").isFile && File(dir,"mfcc.conf").isFile
 
-    suspend fun importModel(context: Context, uri: Uri) = lock.withLock {
-        val stage = File(context.filesDir,"speech-model-new").apply { deleteRecursively(); mkdirs() }
+    /** Imports either a speech model or a speaker (x-vector) model ZIP, detected from its contents. Returns true for a speaker model. */
+    suspend fun importModel(context: Context, uri: Uri): Boolean = lock.withLock {
+        val stage = File(context.filesDir,"model-new").apply { deleteRecursively(); mkdirs() }
         try {
             var total = 0L; var entries = 0
             context.contentResolver.openInputStream(uri)!!.use { input ->
@@ -51,39 +58,60 @@ object LocalSpeech {
                     }
                 }
             }
-            val root = stage.walkTopDown().maxDepth(3).firstOrNull { it.isDirectory && File(it,"am/final.mdl").isFile && File(it,"conf/model.conf").isFile }
-                ?: error("VoskモデルZIPではありません")
-            Model(root.path).use { /* Validate before replacing the installed model. */ }
-            val current = modelDir(context); val old = File(context.filesDir,"speech-model-old")
+            val candidates = stage.walkTopDown().maxDepth(3).filter { it.isDirectory }.toList()
+            val speech = candidates.firstOrNull(::isSpeechModel)
+            val speaker = if(speech == null) candidates.firstOrNull(::isSpeakerModel) else null
+            val root = speech ?: speaker ?: error("VoskのモデルZIP（音声認識または話者モデル）ではありません")
+            // Validate by loading before replacing the installed model.
+            if(speech != null) Model(root.path).use { } else SpeakerModel(root.path).use { }
+            val name = if(speech != null) "speech-model" else "speaker-model"
+            val current = installed(context, name); val old = File(context.filesDir,"$name-old")
             old.deleteRecursively()
             if(current.exists()) check(current.renameTo(old))
             if(!root.renameTo(current)) { old.renameTo(current); error("モデルを配置できませんでした") }
             old.deleteRecursively()
+            speaker != null
         } finally { stage.deleteRecursively() }
     }
 
-    suspend fun <T> withRecognizer(context: Context, rate: Int, block: suspend (Recognizer) -> T): T = lock.withLock {
+    suspend fun <T> withRecognizer(context: Context, rate: Int, speakers: Boolean = false, block: suspend (Recognizer) -> T): T = lock.withLock {
         check(available(context)) { "設定からVoskモデルZIPを取り込んでください" }
         Model(modelDir(context).path).use { model ->
-            Recognizer(model, rate.toFloat()).use { recognizer -> recognizer.setWords(true); block(recognizer) }
+            val speakerModel = if(speakers && speakerAvailable(context)) SpeakerModel(speakerDir(context).path) else null
+            try {
+                val recognizer = if(speakerModel != null) Recognizer(model, rate.toFloat(), speakerModel) else Recognizer(model, rate.toFloat())
+                recognizer.use { it.setWords(true); block(it) }
+            } finally { speakerModel?.close() }
         }
     }
     fun mono(samples: ShortArray, channels: Int): ShortArray {
         if(channels == 1) return samples
         return ShortArray(samples.size / channels) { i -> (0 until channels).sumOf { samples[i*channels+it].toInt() }.div(channels).toShort() }
     }
-    fun parse(json: String, endMs: Long): List<Segment> {
-        val j = JSONObject(json); val text = j.optString("text").trim()
-        if(text.isBlank()) return emptyList()
+    /** One recognized utterance with its optional speaker embedding. */
+    class Utterance(val segment: Segment, val vector: FloatArray?, val frames: Int)
+
+    fun parseUtterance(json: String, endMs: Long): Utterance? {
+        val j = JSONObject(json); val text = Text.joinTokens(j.optString("text"))
+        if(text.isBlank()) return null
         val words = j.optJSONArray("result")
         val start = if(words != null && words.length() > 0) (words.getJSONObject(0).getDouble("start")*1000).toLong() else endMs
         val end = if(words != null && words.length() > 0) (words.getJSONObject(words.length()-1).getDouble("end")*1000).toLong() else endMs + 1
-        return listOf(Segment(start.coerceAtLeast(0),maxOf(start+1,end),text))
+        val spk = j.optJSONArray("spk")
+        val vector = spk?.let { a -> FloatArray(a.length()) { a.getDouble(it).toFloat() } }
+        return Utterance(Segment(start.coerceAtLeast(0),maxOf(start+1,end),text), vector, j.optInt("spk_frames"))
     }
-    suspend fun transcribe(context: Context, file: File, progress: (Float) -> Unit): List<Segment> {
+    fun parse(json: String, endMs: Long): List<Segment> = listOfNotNull(parseUtterance(json, endMs)?.segment)
+
+    /** Assigns "話者N" labels from speaker embeddings; leaves labels empty when no embeddings were produced. */
+    fun diarize(utterances: List<Utterance>, threshold: Float = 0.5f): List<Segment> {
+        val labels = Diarization.cluster(utterances.map { Diarization.Utterance(it.vector, it.frames) }, threshold)
+        return utterances.mapIndexed { i, u -> u.segment.copy(speaker = Diarization.label(labels[i])) }
+    }
+    suspend fun transcribe(context: Context, file: File, speakers: Boolean = true, progress: (Float) -> Unit): List<Segment> {
         val info = Wav.inspect(file)
-        return withRecognizer(context,info.sampleRate) { recognizer ->
-            val segments = mutableListOf<Segment>()
+        return withRecognizer(context,info.sampleRate,speakers) { recognizer ->
+            val segments = mutableListOf<Utterance>()
             RandomAccessFile(file,"r").use { input ->
                 input.seek(info.offset)
                 val bytes = ByteArray(16000 * info.frameBytes)
@@ -94,12 +122,12 @@ object LocalSpeech {
                     input.readFully(bytes,0,n); read += n
                     val pcm = ShortArray(n/2) { i -> ((bytes[2*i].toInt() and 255) or (bytes[2*i+1].toInt() shl 8)).toShort() }
                     val mono = mono(pcm,info.channels)
-                    if(recognizer.acceptWaveForm(mono,mono.size)) segments.addAll(parse(recognizer.result,read/info.frameBytes*1000/info.sampleRate))
+                    if(recognizer.acceptWaveForm(mono,mono.size)) parseUtterance(recognizer.result,read/info.frameBytes*1000/info.sampleRate)?.let(segments::add)
                     progress(read.toFloat()/info.bytes)
                 }
-                segments.addAll(parse(recognizer.finalResult,info.durationMs))
+                parseUtterance(recognizer.finalResult,info.durationMs)?.let(segments::add)
             }
-            segments
+            if(segments.any { it.vector != null }) diarize(segments) else segments.map { it.segment }
         }
     }
 }

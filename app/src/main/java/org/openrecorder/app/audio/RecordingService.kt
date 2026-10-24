@@ -22,6 +22,41 @@ data class CaptureState(val id: String? = null, val paused: Boolean = false, val
     val peaks: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
     val saving: Boolean = false, val silenced: Boolean = false)
 
+/** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
+class BluetoothRoute private constructor(private val manager: AudioManager, private val previousMode: Int) : AutoCloseable {
+    override fun close() {
+        if(Build.VERSION.SDK_INT >= 31) manager.clearCommunicationDevice() else legacySco(manager, false)
+        manager.mode = previousMode
+    }
+    companion object {
+        suspend fun open(manager: AudioManager, input: AudioDeviceInfo): BluetoothRoute {
+            val route = BluetoothRoute(manager, manager.mode)
+            try {
+                manager.mode = AudioManager.MODE_IN_COMMUNICATION
+                if(Build.VERSION.SDK_INT >= 31) {
+                    val candidates = manager.availableCommunicationDevices.filter { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+                    val output = candidates.firstOrNull { it.address == input.address } ?: candidates.firstOrNull()
+                    check(output != null && manager.setCommunicationDevice(output)) { "Bluetoothマイクに接続できませんでした" }
+                } else { legacySco(manager, true); delay(1500) } // the legacy flag reports the request, not the link
+                val linked = withTimeoutOrNull(4000) {
+                    while(!connected(manager)) delay(100)
+                    true
+                }
+                check(linked == true) { "Bluetoothマイクの接続がタイムアウトしました" }
+                return route
+            } catch(e: Exception) { runCatching { route.close() }; throw e }
+        }
+        @Suppress("DEPRECATION") // Android 10/11 have no communication-device API.
+        private fun legacySco(manager: AudioManager, on: Boolean) {
+            if(on) manager.startBluetoothSco() else manager.stopBluetoothSco()
+            manager.isBluetoothScoOn = on
+        }
+        @Suppress("DEPRECATION")
+        private fun connected(manager: AudioManager) = if(Build.VERSION.SDK_INT >= 31)
+            manager.communicationDevice?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO else manager.isBluetoothScoOn
+    }
+}
+
 class RecordingService : Service() {
     companion object {
         private val mutableState = MutableStateFlow(CaptureState())
@@ -72,6 +107,8 @@ class RecordingService : Service() {
         var recordingCallback: AudioManager.AudioRecordingCallback? = null
         var id: String? = null; var live: LiveTranscriber? = null
         var savedBytes = 0L
+        val audioManager = getSystemService(AudioManager::class.java)
+        var bluetooth: BluetoothRoute? = null
         try {
             check(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
             val rate = intent.getIntExtra("rate",48000).also { require(it in listOf(16000,48000)) }
@@ -87,8 +124,10 @@ class RecordingService : Service() {
             check(audio.state == AudioRecord.STATE_INITIALIZED)
             val deviceId = intent.getIntExtra("device",0)
             if(deviceId != 0) {
-                val device = getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.id == deviceId }
+                val device = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.id == deviceId }
                     ?: error("選択したマイクが接続されていません")
+                // A Bluetooth headset microphone is only available over an SCO (call-quality) link.
+                if(device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) bluetooth = BluetoothRoute.open(audioManager, device)
                 check(audio.setPreferredDevice(device)) { "マイクを選択できませんでした" }
             }
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
@@ -148,6 +187,7 @@ class RecordingService : Service() {
         } finally {
             recordingCallback?.let { callback -> runCatching { recorder?.unregisterAudioRecordingCallback(callback) } }
             runCatching { recorder?.stop() }; runCatching { recorder?.release() }; runCatching { suppressor?.release() }
+            runCatching { bluetooth?.close() }
             if(wake?.isHeld == true) wake?.release(); wake = null
             val liveSegments = runCatching { withTimeout(30000) { live?.finish() } }.getOrNull()
             id?.let { key ->
