@@ -179,6 +179,26 @@ class RecordingRepository(private val context: Context) {
         try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
         return r
     }
+    /**
+     * Joins recordings in recording order into a new one. Rate and channels follow the highest of the
+     * sources; marks and transcripts move to their place in the joined timeline.
+     */
+    fun merge(ids: List<String>, progress: (Float) -> Unit = {}): Recording {
+        val parts = ids.mapNotNull(::get).filter { !it.unfinished && it.deletedAt == null }.sortedBy { it.createdAt }
+        require(parts.size >= 2) { "2件以上の録音を選択してください" }
+        val wavs = parts.mapIndexed { i, r -> wav(r) { progress(it * 0.3f * (i + 1) / parts.size) } }
+        val infos = wavs.map { Wav.inspect(it) }
+        val newId = UUID.randomUUID().toString()
+        Concat.join(wavs, temp(newId), infos.maxOf { it.sampleRate }, infos.maxOf { it.channels }) { progress(0.3f + it * 0.6f) }
+        val (name, info) = store(newId, temp(newId), format(parts.first())) { progress(0.9f + it * 0.1f) }
+        val offsets = Concat.offsets(infos.map { it.durationMs })
+        val r = Recording(id = newId, title = "${parts.first().title}（結合）", fileName = name, durationMs = info.durationMs,
+            sampleRate = info.sampleRate, channels = info.channels, folder = parts.first().folder,
+            marks = parts.zip(offsets).flatMap { (p, o) -> p.marks.map { it.copy(timeMs = it.timeMs + o) } },
+            segments = parts.zip(offsets).flatMap { (p, o) -> p.segments.map { it.copy(startMs = it.startMs + o, endMs = it.endMs + o) } })
+        try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
+        return r
+    }
     @Synchronized fun permanentlyDelete(id: String) {
         val r = get(id) ?: return
         require(r.deletedAt != null && !r.unfinished)

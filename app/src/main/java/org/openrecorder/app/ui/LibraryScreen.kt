@@ -35,7 +35,7 @@ class LibraryActions(
     val open: (String) -> Unit = {}, val record: () -> Unit = {}, val showRecording: () -> Unit = {},
     val import: () -> Unit = {}, val trash: () -> Unit = {}, val settings: () -> Unit = {},
     val favorite: (String) -> Unit = {}, val rename: (String, String) -> Unit = { _, _ -> }, val move: (String, String) -> Unit = { _, _ -> },
-    val delete: (String) -> Unit = {},
+    val delete: (String) -> Unit = {}, val merge: (List<String>) -> Unit = {},
 )
 
 @Composable
@@ -45,6 +45,8 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
     var filter by rememberSaveable { mutableStateOf("") } // "" all, "★" favourites, otherwise a folder
     var renaming by remember { mutableStateOf<Recording?>(null) }
     var moving by remember { mutableStateOf<Recording?>(null) }
+    var selected by rememberSaveable { mutableStateOf(listOf<String>()) }
+    androidx.activity.compose.BackHandler(selected.isNotEmpty()) { selected = emptyList() }
     val active = recordings.filter { it.deletedAt == null && !it.unfinished }
     val folders = active.map { it.folder }.filter(String::isNotBlank).distinct().sorted()
     val shown = active.filter { r ->
@@ -52,8 +54,13 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
     }
     Scaffold(
         topBar = {
-            AnimatedContent(searching, label = "search") { s ->
-                if (s) SearchBar(query, { query = it }) { searching = false; query = "" }
+            AnimatedContent(if (selected.isNotEmpty()) 2 else if (searching) 1 else 0, label = "search") { mode ->
+                if (mode == 2) TopAppBar(navigationIcon = { IconButton({ selected = emptyList() }) { Icon(Icons.Rounded.Close, "選択を解除") } },
+                    title = { Text("${selected.size}件を選択") }, actions = {
+                        IconButton({ actions.merge(selected); selected = emptyList() }, enabled = selected.size >= 2) { Icon(Icons.Rounded.MergeType, "結合") }
+                        IconButton({ selected.forEach(actions.delete); selected = emptyList() }) { Icon(Icons.Rounded.Delete, "削除") }
+                    })
+                else if (mode == 1) SearchBar(query, { query = it }) { searching = false; query = "" }
                 else TopAppBar(title = { Text("録音") }, actions = {
                     IconButton({ searching = true }) { Icon(Icons.Rounded.Search, "検索") }
                     var menu by remember { mutableStateOf(false) }
@@ -88,7 +95,10 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
                             Text(day, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp))
                         }
-                        items(items, key = { it.id }) { r -> RecordingRow(r, actions, { renaming = r }, { moving = r }) }
+                        items(items, key = { it.id }) { r ->
+                            RecordingRow(r, actions, { renaming = r }, { moving = r }, selection = if (selected.isEmpty()) null else r.id in selected,
+                                select = { selected = if (r.id in selected) selected - r.id else selected + r.id })
+                        }
                     }
                 }
             }
@@ -121,12 +131,15 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, close: () -> Uni
 }
 
 @Composable
-private fun RecordingRow(r: Recording, actions: LibraryActions, rename: () -> Unit, move: () -> Unit) {
+private fun RecordingRow(r: Recording, actions: LibraryActions, rename: () -> Unit, move: () -> Unit, selection: Boolean?, select: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Box {
-        Row(Modifier.fillMaxWidth().combinedClickable(onClick = { actions.open(r.id) }, onLongClick = { menu = true })
+        Row(Modifier.fillMaxWidth().combinedClickable(onClick = { if (selection != null) select() else actions.open(r.id) },
+            onLongClick = { if (selection != null) select() else menu = true })
+            .background(if (selection == true) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selection != null) Checkbox(selection, { select() }, Modifier.padding(end = 12.dp).size(24.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(r.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -145,6 +158,7 @@ private fun RecordingRow(r: Recording, actions: LibraryActions, rename: () -> Un
                 leadingIcon = { Icon(if (r.favorite) Icons.Rounded.StarBorder else Icons.Rounded.Star, null) })
             DropdownMenuItem({ Text("名前を変更") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("フォルダーに移動") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) })
+            DropdownMenuItem({ Text("選択") }, { menu = false; select() }, leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) })
             DropdownMenuItem({ Text("削除") }, { menu = false; actions.delete(r.id) }, leadingIcon = { Icon(Icons.Rounded.Delete, null) })
         }
     }

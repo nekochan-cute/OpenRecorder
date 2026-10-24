@@ -43,4 +43,25 @@ class PcmTest {
         assertEquals(16000.0, total.toDouble(), 2.0)
         assertTrue("opposite channels cancel in the mono mix", peak < 0.01f)
     }
+
+    @Test fun joinsDifferentRatesAndChannelsInOrder() {
+        val a = wav(16000, 1, 1.0) { _, _ -> 0.25f }
+        val b = wav(48000, 2, 0.5) { _, c -> if (c == 0) -0.5f else 0.5f }
+        val out = File.createTempFile("joined", ".wav").apply { deleteOnExit() }
+        val info = Concat.join(listOf(a, b), out, 48000, 2)
+        assertEquals(48000, info.sampleRate); assertEquals(2, info.channels)
+        assertEquals(1500.0, info.durationMs.toDouble(), 5.0)
+        val samples = mutableListOf<Float>()
+        Pcm.read(out) { chunk, _ -> samples += chunk.toList() }
+        assertEquals(0.25f, samples[48000], 0.01f)       // middle of the first part, left
+        assertEquals(0.25f, samples[48001], 0.01f)       // mono is copied to both channels
+        val second = 2 * (48000 + 12000)                  // a quarter into the second part
+        assertEquals(-0.5f, samples[second], 0.01f); assertEquals(0.5f, samples[second + 1], 0.01f)
+        assertEquals(listOf(0L, 1000L, 1500L), Concat.offsets(listOf(1000L, 500L, 200L)))
+    }
+
+    @Test fun joiningNeedsTwoRecordings() {
+        val a = wav(16000, 1, 0.1) { _, _ -> 0f }
+        assertThrows(IllegalArgumentException::class.java) { Concat.join(listOf(a), File.createTempFile("x", ".wav"), 16000, 1) }
+    }
 }
