@@ -7,7 +7,7 @@ import kotlin.math.max
 
 /**
  * Streaming linear resampler with a box low-pass sized to the decimation ratio. Good enough for
- * speech models; not a mastering-grade converter.
+ * speech models and for joining recordings of different rates; not a mastering-grade converter.
  */
 class Resampler(private val inRate: Int, private val outRate: Int) {
     private val step = inRate.toDouble() / outRate
@@ -76,3 +76,46 @@ object Pcm {
     fun toShort(v: Float): Short = (v.coerceIn(-1f, 1f) * 32767f).toInt().toShort()
 }
 
+/** Joins recordings end to end, converting each to the output rate and channel count. */
+object Concat {
+    fun join(sources: List<File>, target: File, rate: Int, channels: Int, progress: (Float) -> Unit = {}): WavInfo {
+        require(sources.size >= 2) { "2件以上の録音を選択してください" }
+        require(sources.none { it.canonicalPath == target.canonicalPath })
+        val infos = sources.map { Wav.inspect(it) }
+        val total = infos.sumOf { it.bytes }.coerceAtLeast(1)
+        try {
+            RandomAccessFile(target, "rw").use { out ->
+                out.setLength(0); out.write(Wav.header(0, rate, channels))
+                var written = 0L; var done = 0L
+                val buffer = java.nio.ByteBuffer.allocate(64 * 1024).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                fun flush() { out.write(buffer.array(), 0, buffer.position()); written += buffer.position(); buffer.clear() }
+                for ((file, info) in sources.zip(infos)) {
+                    val resamplers = List(info.channels) { Resampler(info.sampleRate, rate) }
+                    Pcm.read(file) { chunk, _ ->
+                        val frames = chunk.size / info.channels
+                        val perChannel = List(info.channels) { c -> resamplers[c].process(FloatArray(frames) { chunk[it * info.channels + c] }) }
+                        val outFrames = perChannel.minOf { it.size }
+                        for (f in 0 until outFrames) for (c in 0 until channels) {
+                            val v = when {
+                                info.channels == channels -> perChannel[c][f]
+                                channels == 1 -> perChannel.sumOf { it[f].toDouble() }.toFloat() / info.channels
+                                else -> perChannel[minOf(c, info.channels - 1)][f]
+                            }
+                            buffer.putShort(Pcm.toShort(v))
+                            if (!buffer.hasRemaining()) flush()
+                        }
+                        done += chunk.size * 2L
+                        progress(done.toFloat() / total)
+                    }
+                }
+                flush()
+                require(written in 1..Wav.MAX_BYTES) { "結合後の音声が長すぎます" }
+                out.seek(0); out.write(Wav.header(written, rate, channels)); out.fd.sync()
+            }
+            return Wav.inspect(target)
+        } catch (e: Throwable) { target.delete(); throw e }
+    }
+
+    /** Start of each source in the joined timeline, in ms. */
+    fun offsets(durations: List<Long>): List<Long> = durations.runningFold(0L) { acc, d -> acc + d }.dropLast(1)
+}

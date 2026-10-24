@@ -118,7 +118,8 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                 current == "library" -> LibraryScreen(all, capture, LibraryActions(
                     open = { vm.load(it); go("detail/$it") }, record = ::record, showRecording = { go("record") },
                     import = { importAudio.launch(arrayOf("audio/*", "application/ogg")) }, trash = { go("trash") }, settings = { go("settings") },
-                    favorite = vm::favorite, rename = vm::rename, move = vm::moveToFolder, delete = { vm.trash(it); undoTrash(vm, snackbar, it) }))
+                    favorite = vm::favorite, rename = vm::rename, move = vm::moveToFolder, delete = { vm.trash(it); undoTrash(vm, snackbar, it) },
+                    merge = { ids -> vm.merge(ids) { id -> vm.load(id); go("detail/$id") } }))
                 current == "record" -> RecordScreen(capture, all.firstOrNull { it.id == capture.id }, RecordActions(
                     pause = { vm.command(RecordingService.PAUSE) }, stop = { vm.command(RecordingService.STOP) },
                     mark = { capture.id?.let { vm.mark(it, capture.durationMs) } }, photo = { capture.id?.let { pickPhoto(it, capture.durationMs) } },
