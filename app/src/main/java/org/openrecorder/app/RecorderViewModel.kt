@@ -169,6 +169,10 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         repo.update(id) { it.copy(segments = translated, translationLanguage = language) }
     }
     fun clearTranslation(id: String) = task("保存中") { repo.update(id) { it.copy(segments = it.segments.map { s -> s.copy(translation = "") }, translationLanguage = "") } }
+    fun merge(ids: List<String>, done: (String) -> Unit) = task("結合中") {
+        val merged = repo.merge(ids) { p -> busy.value = "結合中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { done(merged.id) }
+    }
     fun summarize(id: String, template: String) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
         val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template)
