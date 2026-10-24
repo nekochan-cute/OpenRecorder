@@ -22,7 +22,7 @@ class RemoteAi {
     }
     private fun execute(request: Request): JSONObject {
         client.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { "APIエラー HTTP ${response.code}（サーバー設定・対応形式を確認してください）" }
+            check(response.isSuccessful) { when(response.code) { 401, 403 -> "APIキーが無効です"; 404 -> "URLかモデル名が見つかりません"; 429 -> "利用上限に達しました"; else -> "APIエラー（HTTP ${response.code}）" } }
             val body = response.body ?: error("APIから応答がありません")
             require(body.contentLength() <= 8L * 1024 * 1024) { "API応答が大きすぎます" }
             val bytes = body.byteStream().use { input ->
@@ -34,12 +34,22 @@ class RemoteAi {
             return JSONObject(String(bytes,Charsets.UTF_8))
         }
     }
+    /** Model ids from the service's OpenAI-compatible `GET /models` (OpenRouter answers without a key). */
+    suspend fun listModels(baseUrl: String, key: String): List<String> = withContext(Dispatchers.IO) {
+        val url = baseUrl.trimEnd('/') + "/models"
+        val parsed = java.net.URI(url)
+        require(parsed.scheme == "https" && parsed.host != null) { "URLはhttps://で始まる形式で入力してください" }
+        val request = Request.Builder().url(url).apply { if(key.isNotBlank()) header("Authorization","Bearer $key") }.get().build()
+        val data = execute(request).optJSONArray("data") ?: JSONArray()
+        (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("id")?.removePrefix("models/")?.takeIf(String::isNotBlank) }.distinct().sorted()
+    }
     suspend fun transcribe(file: File, config: AiConfig, durationMs: Long): List<Segment> = withContext(Dispatchers.IO) {
-        require(config.transcriptionUrl.isNotBlank()) { "設定から文字起こしAPIを登録してください" }
+        require(config.transcriptionReady) { "AI連携で文字起こしのサービスを設定してください" }
         require(durationMs > 0) { "音声が空です" }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("file","recording.wav",file.asRequestBody("audio/wav".toMediaType()))
             .addFormDataPart("response_format","verbose_json")
+            .apply { if(config.transcriptionModel.isBlank()) config.transcriptionProvider?.speechModel?.takeIf(String::isNotBlank)?.let { addFormDataPart("model",it) } }
             .apply {
                 if(config.language.isNotBlank()) addFormDataPart("language",config.language)
                 if(config.transcriptionModel.isNotBlank()) addFormDataPart("model",config.transcriptionModel)
@@ -60,7 +70,7 @@ class RemoteAi {
         }.filter { it.text.isNotBlank() }.sortedBy { it.startMs }
     }
     suspend fun summarize(segments: List<Segment>, config: AiConfig, template: String): Pair<String,String> = withContext(Dispatchers.IO) {
-        require(config.summaryUrl.isNotBlank() && config.summaryModel.isNotBlank()) { "設定から要約APIとモデル名を登録してください" }
+        require(config.summaryReady) { "AI連携で要約のサービスとモデルを設定してください" }
         require(segments.isNotEmpty()) { "先に文字起こしを実行してください" }
         val transcript = segments.joinToString("\n") { "[${timeLabel(it.startMs)}] ${it.speaker}: ${it.text}" }
         require(transcript.length <= 60000) { "文字起こしが長すぎます。録音を分割して要約してください（上限60,000文字）" }

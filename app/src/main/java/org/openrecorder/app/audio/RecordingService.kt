@@ -14,13 +14,50 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.openrecorder.app.*
+import org.openrecorder.app.core.Levels
 import org.openrecorder.app.core.Wav
 import org.openrecorder.app.ai.LiveTranscriber
 import java.io.RandomAccessFile
 
+/** [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last. */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
-    val peaks: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
+    val levels: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
     val saving: Boolean = false, val silenced: Boolean = false)
+
+/** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
+class BluetoothRoute private constructor(private val manager: AudioManager, private val previousMode: Int) : AutoCloseable {
+    override fun close() {
+        if(Build.VERSION.SDK_INT >= 31) manager.clearCommunicationDevice() else legacySco(manager, false)
+        manager.mode = previousMode
+    }
+    companion object {
+        suspend fun open(manager: AudioManager, input: AudioDeviceInfo): BluetoothRoute {
+            val route = BluetoothRoute(manager, manager.mode)
+            try {
+                manager.mode = AudioManager.MODE_IN_COMMUNICATION
+                if(Build.VERSION.SDK_INT >= 31) {
+                    val candidates = manager.availableCommunicationDevices.filter { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+                    val output = candidates.firstOrNull { it.address == input.address } ?: candidates.firstOrNull()
+                    check(output != null && manager.setCommunicationDevice(output)) { "Bluetoothマイクに接続できませんでした" }
+                } else { legacySco(manager, true); delay(1500) } // the legacy flag reports the request, not the link
+                val linked = withTimeoutOrNull(4000) {
+                    while(!connected(manager)) delay(100)
+                    true
+                }
+                check(linked == true) { "Bluetoothマイクの接続がタイムアウトしました" }
+                return route
+            } catch(e: Exception) { runCatching { route.close() }; throw e }
+        }
+        @Suppress("DEPRECATION") // Android 10/11 have no communication-device API.
+        private fun legacySco(manager: AudioManager, on: Boolean) {
+            if(on) manager.startBluetoothSco() else manager.stopBluetoothSco()
+            manager.isBluetoothScoOn = on
+        }
+        @Suppress("DEPRECATION")
+        private fun connected(manager: AudioManager) = if(Build.VERSION.SDK_INT >= 31)
+            manager.communicationDevice?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO else manager.isBluetoothScoOn
+    }
+}
 
 class RecordingService : Service() {
     companion object {
@@ -56,10 +93,10 @@ class RecordingService : Service() {
         fun command(action: String, code: Int) = PendingIntent.getService(this,code,Intent(this,RecordingService::class.java).setAction(action),PendingIntent.FLAG_IMMUTABLE)
         val s = mutableState.value
         return NotificationCompat.Builder(this,"capture").setSmallIcon(R.drawable.ic_recorder)
-            .setContentTitle(if(mutableState.value.saving) "録音を保存中" else if(paused) "録音を一時停止中" else "録音中")
+            .setContentTitle(if(mutableState.value.saving) "保存中" else if(paused) "一時停止中" else "録音中")
             .setContentText(org.openrecorder.app.core.timeLabel(s.durationMs)).setOngoing(true).setContentIntent(open)
             .addAction(0, if(paused) "再開" else "一時停止",command(PAUSE,1))
-            .addAction(0,"保存して停止",command(STOP,2)).build()
+            .addAction(0,"停止",command(STOP,2)).build()
     }
     private fun notifyUpdate() { getSystemService(NotificationManager::class.java).notify(10,notification()) }
 
@@ -72,6 +109,8 @@ class RecordingService : Service() {
         var recordingCallback: AudioManager.AudioRecordingCallback? = null
         var id: String? = null; var live: LiveTranscriber? = null
         var savedBytes = 0L
+        val audioManager = getSystemService(AudioManager::class.java)
+        var bluetooth: BluetoothRoute? = null
         try {
             check(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
             val rate = intent.getIntExtra("rate",48000).also { require(it in listOf(16000,48000)) }
@@ -87,8 +126,10 @@ class RecordingService : Service() {
             check(audio.state == AudioRecord.STATE_INITIALIZED)
             val deviceId = intent.getIntExtra("device",0)
             if(deviceId != 0) {
-                val device = getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.id == deviceId }
+                val device = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.id == deviceId }
                     ?: error("選択したマイクが接続されていません")
+                // A Bluetooth headset microphone is only available over an SCO (call-quality) link.
+                if(device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) bluetooth = BluetoothRoute.open(audioManager, device)
                 check(audio.setPreferredDevice(device)) { "マイクを選択できませんでした" }
             }
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
@@ -113,8 +154,9 @@ class RecordingService : Service() {
                 audio.startRecording()
                 check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
                 val buffer = ShortArray(rate / 50 * channels)
-                var actuallyPaused = false; var lastCheckpoint = 0L
+                var actuallyPaused = false; var lastCheckpoint = 0L; var lastPublish = 0L
                 val meter = ArrayDeque<Float>()
+                val framesPerLevel = rate / Levels.PER_SECOND; var levelFrames = 0; var levelPeak = 0
                 while(!stopping && currentCoroutineContext().isActive) {
                     if(paused) {
                         if(!actuallyPaused) { audio.stop(); actuallyPaused = true }
@@ -126,14 +168,20 @@ class RecordingService : Service() {
                     if(n == 0 || paused) continue
                     check(savedBytes + n * 2 <= Wav.MAX_BYTES) { "WAVの上限に達しました。録音を分割してください" }
                     val bytes = ByteArray(n * 2)
-                    var peak = 0
-                    for(i in 0 until n) { val v = buffer[i].toInt(); bytes[i*2]=v.toByte(); bytes[i*2+1]=(v shr 8).toByte(); peak=maxOf(peak,kotlin.math.abs(v)) }
+                    for(i in 0 until n) {
+                        val v = buffer[i].toInt(); bytes[i*2]=v.toByte(); bytes[i*2+1]=(v shr 8).toByte()
+                        levelPeak = maxOf(levelPeak,kotlin.math.abs(v))
+                        if(i % channels == channels - 1 && ++levelFrames == framesPerLevel) {
+                            meter.addLast(Levels.fromLinear(levelPeak / 32768f)); if(meter.size > 600) meter.removeFirst()
+                            levelFrames = 0; levelPeak = 0
+                        }
+                    }
                     output.write(bytes); savedBytes += bytes.size
                     live?.offer(buffer.copyOf(n))
                     val duration = savedBytes / (channels * 2) * 1000 / rate
-                    if(duration - lastCheckpoint >= 100) {
-                        meter.addLast(peak / 32768f); if(meter.size > 160) meter.removeFirst()
-                        mutableState.update { it.copy(durationMs = duration, peaks = meter.toList(),
+                    if(duration - lastPublish >= 50) {
+                        lastPublish = duration
+                        mutableState.update { it.copy(durationMs = duration, levels = meter.toList(),
                             input = audio.routedDevice?.productName?.toString() ?: "マイク") }
                     }
                     if(duration - lastCheckpoint >= 1000) {
@@ -148,6 +196,7 @@ class RecordingService : Service() {
         } finally {
             recordingCallback?.let { callback -> runCatching { recorder?.unregisterAudioRecordingCallback(callback) } }
             runCatching { recorder?.stop() }; runCatching { recorder?.release() }; runCatching { suppressor?.release() }
+            runCatching { bluetooth?.close() }
             if(wake?.isHeld == true) wake?.release(); wake = null
             val liveSegments = runCatching { withTimeout(30000) { live?.finish() } }.getOrNull()
             id?.let { key ->
