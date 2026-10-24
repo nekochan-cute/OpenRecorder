@@ -8,6 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import org.openrecorder.app.audio.AudioCodec
+import org.openrecorder.app.audio.Mp3
+import org.openrecorder.app.audio.RecordFormat
+import org.openrecorder.app.audio.durationMs
+import org.openrecorder.app.audio.remuxAdts
 import org.openrecorder.app.core.*
 import java.io.File
 import java.util.UUID
@@ -16,6 +20,7 @@ class RecordingRepository(private val context: Context) {
     val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
     private val photoDir = File(context.filesDir, "photos").apply { mkdirs() }
     private val levelsDir = File(context.filesDir, "levels").apply { mkdirs() }
+    private val wavCache = File(context.cacheDir, "wav")
     private val index = AtomicFile(File(context.filesDir, "recordings.json"))
     private val _recordings = MutableStateFlow<List<Recording>>(emptyList())
     val recordings = _recordings.asStateFlow()
@@ -36,12 +41,39 @@ class RecordingRepository(private val context: Context) {
 
     fun file(r: Recording) = File(audioDir, r.fileName).also { require(it.canonicalFile.parentFile == audioDir.canonicalFile) }
     fun get(id: String) = _recordings.value.firstOrNull { it.id == id }
+    fun format(r: Recording) = RecordFormat.ofFile(r.fileName)
+    /** The recording as 16-bit WAV: the file itself, or a cached decode of an M4A/MP3 recording. */
+    fun wav(r: Recording, progress: (Float) -> Unit = {}): File {
+        if (format(r) == RecordFormat.Wav) return file(r)
+        val cached = File(wavCache.apply { mkdirs() }, "${r.id}.wav")
+        if (cached.isFile && cached.lastModified() >= file(r).lastModified()) return cached
+        val part = File(wavCache, "${r.id}.part")
+        AudioCodec.decodeToWav(file(r), part, progress)
+        check(part.renameTo(cached))
+        return cached
+    }
     /** Waveform levels at 20 per second, computed once per recording and cached. */
     fun levels(r: Recording): ByteArray {
         val cache = File(levelsDir, "${r.id}.bin")
         if (cache.isFile && cache.lastModified() >= file(r).lastModified()) return cache.readBytes()
-        return Levels.read(file(r)).also { runCatching { cache.writeBytes(it) } }
+        return Levels.read(wav(r)).also { runCatching { cache.writeBytes(it) } }
     }
+    fun saveLevels(id: String, levels: ByteArray) = runCatching { File(levelsDir, "$id.bin").writeBytes(levels) }
+
+    /** Stores a rendered WAV as a new recording file in [format]; returns the file name and audio info. */
+    private fun store(id: String, rendered: File, format: RecordFormat, progress: (Float) -> Unit = {}): Pair<String, WavInfo> {
+        val info = Wav.inspect(rendered)
+        val target = File(audioDir, "$id.${format.extension}")
+        try {
+            when (format) {
+                RecordFormat.Wav -> check(rendered.renameTo(target) || run { rendered.copyTo(target, true); true })
+                RecordFormat.Aac -> AudioCodec.encodeAac(rendered, target, progress)
+                RecordFormat.Mp3 -> Mp3.encode(rendered, target, progress)
+            }
+        } finally { if (format != RecordFormat.Wav) rendered.delete() }
+        return target.name to info
+    }
+    private fun temp(id: String) = File(audioDir, "$id.rendering.wav")
 
     @Synchronized private fun commit(next: List<Recording>) {
         val bytes = JSONArray().apply { next.forEach { put(encode(it)) } }.toString().toByteArray()
@@ -53,13 +85,28 @@ class RecordingRepository(private val context: Context) {
     @Synchronized fun update(id: String, change: (Recording) -> Recording) {
         commit(_recordings.value.map { if (it.id == id) change(it) else it })
     }
-    fun create(rate: Int, channels: Int): Recording {
+    /** AAC is written as ADTS (.aac) while recording and becomes .m4a in [complete]. */
+    fun create(rate: Int, channels: Int, format: RecordFormat = RecordFormat.Wav): Recording {
         val id = UUID.randomUUID().toString()
+        val ext = if (format == RecordFormat.Aac) "aac" else format.extension
         val r = Recording(id = id, title = "録音 " + java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.JAPAN).format(java.util.Date()),
-            fileName = "$id.wav", sampleRate = rate, channels = channels, unfinished = true)
-        file(r).writeBytes(Wav.header(0, rate, channels))
+            fileName = "$id.$ext", sampleRate = rate, channels = channels, unfinished = true)
+        if (format == RecordFormat.Wav) file(r).writeBytes(Wav.header(0, rate, channels)) else file(r).writeBytes(ByteArray(0))
         try { add(r) } catch (e: Exception) { file(r).delete(); throw e }
         return r
+    }
+    /** Finalises a recording after a clean stop. */
+    fun complete(id: String, durationMs: Long, segments: List<Segment>?, levels: ByteArray?) {
+        val r = get(id) ?: return
+        var fileName = r.fileName; var duration = durationMs
+        when (r.fileName.substringAfterLast('.')) {
+            "wav" -> duration = Wav.repair(file(r), r.sampleRate, r.channels).durationMs
+            "aac" -> runCatching {
+                val m4a = File(audioDir, "$id.m4a"); AudioCodec.remuxAdts(file(r), m4a); file(r).delete(); fileName = m4a.name
+            }
+        }
+        update(id) { it.copy(fileName = fileName, durationMs = duration, unfinished = false, segments = segments ?: it.segments) }
+        levels?.let { saveLevels(id, it) }
     }
     fun mark(id: String, time: Long, text: String, photo: String? = null) {
         update(id) { it.copy(marks = (it.marks + Mark(timeMs = time, text = text, photo = photo)).sortedBy(Mark::timeMs)) }
@@ -83,13 +130,13 @@ class RecordingRepository(private val context: Context) {
         val old = get(id) ?: error("録音がありません")
         require(!old.unfinished && old.deletedAt == null)
         val newId = UUID.randomUUID().toString()
-        val out = File(audioDir, "$newId.wav")
-        val info = Wav.edit(file(old), out, spans)
-        val r = old.copy(id = newId, title = old.title + "（編集）", fileName = out.name,
+        Wav.edit(wav(old), temp(newId), spans)
+        val (name, info) = store(newId, temp(newId), format(old))
+        val r = old.copy(id = newId, title = old.title + "（編集）", fileName = name,
             createdAt = System.currentTimeMillis(), durationMs = info.durationMs,
             marks = Timeline.marks(old.marks, spans), segments = Timeline.segments(old.segments, spans),
-            summary = "", sourceId = old.id, peaks = Wav.peaks(out))
-        try { add(r) } catch (e: Exception) { out.delete(); throw e }
+            summary = "", sourceId = old.id, peaks = emptyList())
+        try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
         return r
     }
     /**
@@ -113,7 +160,7 @@ class RecordingRepository(private val context: Context) {
             } else AudioCodec.decodeToWav(staged, dest, progress)
             require(info.bytes > 0) { "音声が空です" }
             val r = Recording(id = id, title = title.ifBlank { "取り込んだ録音" }, fileName = dest.name,
-                durationMs = info.durationMs, sampleRate = info.sampleRate, channels = info.channels, peaks = Wav.peaks(dest))
+                durationMs = info.durationMs, sampleRate = info.sampleRate, channels = info.channels)
             add(r); return r
         } catch (e: Exception) { dest.delete(); throw e }
         finally { staged.delete() }
@@ -123,12 +170,13 @@ class RecordingRepository(private val context: Context) {
         val old = get(id) ?: error("録音がありません")
         require(!old.unfinished && old.deletedAt == null)
         val newId = UUID.randomUUID().toString()
-        val out = File(audioDir, "$newId.wav")
-        require(audioDir.usableSpace > file(old).length() + 32L * 1024 * 1024) { "空き容量が足りません" }
-        val info = AudioProcessor.process(file(old), out, options, progress)
-        val r = old.copy(id = newId, title = old.title + "（音声処理）", fileName = out.name, createdAt = System.currentTimeMillis(),
-            durationMs = info.durationMs, sourceId = old.id, favorite = false, peaks = Wav.peaks(out))
-        try { add(r) } catch (e: Exception) { out.delete(); throw e }
+        val source = wav(old)
+        require(audioDir.usableSpace > source.length() * 2 + 32L * 1024 * 1024) { "空き容量が足りません" }
+        AudioProcessor.process(source, temp(newId), options) { progress(it * 0.9f) }
+        val (name, info) = store(newId, temp(newId), format(old)) { progress(0.9f + it * 0.1f) }
+        val r = old.copy(id = newId, title = old.title + "（音声処理）", fileName = name, createdAt = System.currentTimeMillis(),
+            durationMs = info.durationMs, sourceId = old.id, favorite = false, peaks = emptyList())
+        try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
         return r
     }
     @Synchronized fun permanentlyDelete(id: String) {
@@ -140,7 +188,7 @@ class RecordingRepository(private val context: Context) {
         try { commit(_recordings.value.filterNot { it.id == id }) }
         catch(e: Exception) { if(tomb.exists()) tomb.renameTo(f); throw e }
         tomb.delete()
-        File(levelsDir, "${r.id}.bin").delete()
+        File(levelsDir, "${r.id}.bin").delete(); File(wavCache, "${r.id}.wav").delete()
         val used = _recordings.value.flatMap { it.marks }.mapNotNull { it.photo }.toSet()
         r.marks.mapNotNull { it.photo }.filterNot { it in used }.forEach { photoFile(it).delete() }
     }
@@ -154,8 +202,16 @@ class RecordingRepository(private val context: Context) {
         all = all.map { r ->
             if (!r.unfinished) r else {
                 try {
-                    val info = Wav.repair(file(r), r.sampleRate, r.channels)
-                    r.copy(durationMs = info.durationMs, unfinished = false, title = r.title + "（中断から回収）", peaks = Wav.peaks(file(r)))
+                    when (r.fileName.substringAfterLast('.')) {
+                        "wav" -> r.copy(durationMs = Wav.repair(file(r), r.sampleRate, r.channels).durationMs, unfinished = false, title = r.title + "（中断から回収）")
+                        "aac" -> {
+                            // ADTS frames are self-contained: everything written before the crash is playable.
+                            val m4a = File(audioDir, "${r.id}.m4a")
+                            val name = runCatching { AudioCodec.remuxAdts(file(r), m4a); file(r).delete(); m4a.name }.getOrDefault(r.fileName)
+                            r.copy(fileName = name, durationMs = AudioCodec.durationMs(File(audioDir, name)), unfinished = false, title = r.title + "（中断から回収）")
+                        }
+                        else -> r.copy(durationMs = AudioCodec.durationMs(file(r)), unfinished = false, title = r.title + "（中断から回収）")
+                    }
                 } catch (e: Exception) { warning.value = "回収できない録音があります。元ファイルは保持しています。"; r.copy(unfinished = false) }
             }
         }

@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.update
 import org.openrecorder.app.*
 import org.openrecorder.app.core.Levels
 import org.openrecorder.app.core.Segment
-import org.openrecorder.app.core.Wav
 import org.openrecorder.app.ai.LiveTranscriber
 import java.io.RandomAccessFile
 
@@ -112,14 +111,16 @@ class RecordingService : Service() {
         val app = application as RecorderApp; val repo = app.repository
         var recorder: AudioRecord? = null; var suppressor: NoiseSuppressor? = null
         var recordingCallback: AudioManager.AudioRecordingCallback? = null
-        var id: String? = null; var live: LiveTranscriber? = null
-        var savedBytes = 0L
+        var id: String? = null; var live: LiveTranscriber? = null; var sink: PcmSink? = null
+        var frames = 0L; var rate = 48000
+        val allLevels = java.io.ByteArrayOutputStream()
         val audioManager = getSystemService(AudioManager::class.java)
         var bluetooth: BluetoothRoute? = null
         try {
             check(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
-            val rate = intent.getIntExtra("rate",48000).also { require(it in listOf(16000,48000)) }
+            rate = intent.getIntExtra("rate",48000).also { require(it in listOf(16000,48000)) }
             val channels = intent.getIntExtra("channels",1).also { require(it in 1..2) }
+            val format = RecordFormat.of(intent.getStringExtra("format") ?: "wav")
             val mask = if(channels == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
             val minBuffer = AudioRecord.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT)
             check(minBuffer > 0) { "この録音形式は端末に対応していません" }
@@ -140,7 +141,12 @@ class RecordingService : Service() {
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
                 suppressor = NoiseSuppressor.create(audio.audioSessionId)?.apply { enabled = true }
             }
-            val r = repo.create(rate,channels); id = r.id
+            val r = repo.create(rate,channels,format); id = r.id
+            sink = when(format) {
+                RecordFormat.Wav -> WavSink(repo.file(r), rate, channels)
+                RecordFormat.Aac -> ThreadedSink(AdtsSink(repo.file(r), rate, channels))
+                RecordFormat.Mp3 -> ThreadedSink(Mp3Sink(repo.file(r), rate, channels))
+            }
             mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true)
             recordingCallback = object : AudioManager.AudioRecordingCallback() {
                 override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
@@ -154,48 +160,40 @@ class RecordingService : Service() {
                 live = try { LiveTranscriber(this, rate, channels, scope) { segments, speaking -> mutableState.update { if(it.id == r.id) it.copy(live = segments, speaking = speaking) else it } } }
                 catch(e: Throwable) { mutableState.update { it.copy(liveStatus = "文字起こしを開始できませんでした") }; null }
             }
-            RandomAccessFile(repo.file(r),"rw").use { output ->
-                output.seek(44)
-                audio.startRecording()
-                check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
-                val buffer = ShortArray(rate / 50 * channels)
-                var actuallyPaused = false; var lastCheckpoint = 0L; var lastPublish = 0L
-                val meter = ArrayDeque<Float>()
-                val framesPerLevel = rate / Levels.PER_SECOND; var levelFrames = 0; var levelPeak = 0
-                while(!stopping && currentCoroutineContext().isActive) {
-                    if(paused) {
-                        if(!actuallyPaused) { audio.stop(); actuallyPaused = true }
-                        delay(25); continue
-                    }
-                    if(actuallyPaused) { audio.startRecording(); actuallyPaused = false }
-                    val n = audio.read(buffer,0,buffer.size,AudioRecord.READ_BLOCKING)
-                    check(n >= 0) { "マイク読み取りエラー: $n" }
-                    if(n == 0 || paused) continue
-                    check(savedBytes + n * 2 <= Wav.MAX_BYTES) { "WAVの上限に達しました。録音を分割してください" }
-                    val bytes = ByteArray(n * 2)
-                    for(i in 0 until n) {
-                        val v = buffer[i].toInt(); bytes[i*2]=v.toByte(); bytes[i*2+1]=(v shr 8).toByte()
-                        levelPeak = maxOf(levelPeak,kotlin.math.abs(v))
-                        if(i % channels == channels - 1 && ++levelFrames == framesPerLevel) {
-                            meter.addLast(Levels.fromLinear(levelPeak / 32768f)); if(meter.size > 600) meter.removeFirst()
-                            levelFrames = 0; levelPeak = 0
-                        }
-                    }
-                    output.write(bytes); savedBytes += bytes.size
-                    live?.offer(buffer.copyOf(n))
-                    live?.problem?.let { problem -> if(mutableState.value.liveStatus.isEmpty()) mutableState.update { it.copy(liveStatus = problem) } }
-                    val duration = savedBytes / (channels * 2) * 1000 / rate
-                    if(duration - lastPublish >= 50) {
-                        lastPublish = duration
-                        mutableState.update { it.copy(durationMs = duration, levels = meter.toList(),
-                            input = audio.routedDevice?.productName?.toString() ?: "マイク") }
-                    }
-                    if(duration - lastCheckpoint >= 1000) {
-                        val pos = output.filePointer; output.seek(0); output.write(Wav.header(savedBytes,rate,channels)); output.seek(pos); output.fd.sync()
-                        lastCheckpoint = duration; notifyUpdate()
+            audio.startRecording()
+            check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
+            val buffer = ShortArray(rate / 50 * channels)
+            var actuallyPaused = false; var lastNotify = 0L; var lastPublish = 0L
+            val meter = ArrayDeque<Float>()
+            val framesPerLevel = rate / Levels.PER_SECOND; var levelFrames = 0; var levelPeak = 0
+            while(!stopping && currentCoroutineContext().isActive) {
+                if(paused) {
+                    if(!actuallyPaused) { audio.stop(); actuallyPaused = true }
+                    delay(25); continue
+                }
+                if(actuallyPaused) { audio.startRecording(); actuallyPaused = false }
+                val n = audio.read(buffer,0,buffer.size,AudioRecord.READ_BLOCKING)
+                check(n >= 0) { "マイク読み取りエラー: $n" }
+                if(n == 0 || paused) continue
+                for(i in 0 until n) {
+                    levelPeak = maxOf(levelPeak,kotlin.math.abs(buffer[i].toInt()))
+                    if(i % channels == channels - 1 && ++levelFrames == framesPerLevel) {
+                        val level = Levels.fromLinear(levelPeak / 32768f)
+                        meter.addLast(level); if(meter.size > 600) meter.removeFirst()
+                        allLevels.write(Math.round(level * 255))
+                        levelFrames = 0; levelPeak = 0
                     }
                 }
-                output.seek(0); output.write(Wav.header(savedBytes,rate,channels)); output.fd.sync()
+                sink.write(buffer, n)
+                frames += n / channels
+                live?.offer(buffer.copyOf(n))
+                live?.problem?.let { problem -> if(mutableState.value.liveStatus.isEmpty()) mutableState.update { it.copy(liveStatus = problem) } }
+                val duration = frames * 1000 / rate
+                if(duration - lastPublish >= 50) {
+                    lastPublish = duration
+                    mutableState.update { it.copy(durationMs = duration, levels = meter.toList(), input = audio.routedDevice?.productName?.toString() ?: "マイク") }
+                }
+                if(duration - lastNotify >= 1000) { lastNotify = duration; notifyUpdate() }
             }
         } catch(e: Exception) {
             mutableState.update { it.copy(error = "録音: ${e.message ?: "処理が中断されました"}") }
@@ -204,12 +202,12 @@ class RecordingService : Service() {
             runCatching { recorder?.stop() }; runCatching { recorder?.release() }; runCatching { suppressor?.release() }
             runCatching { bluetooth?.close() }
             if(wake?.isHeld == true) wake?.release(); wake = null
+            val closed = runCatching { sink?.close() }
             val liveSegments = runCatching { withTimeout(60000) { live?.finish() } }.getOrNull()?.takeIf { it.isNotEmpty() }
             id?.let { key ->
-                    runCatching {
-                    val r = repo.get(key)!!; val info = Wav.repair(repo.file(r),r.sampleRate,r.channels)
-                    repo.update(key) { it.copy(durationMs = info.durationMs, unfinished = false, peaks = Wav.peaks(repo.file(r)),
-                        segments = liveSegments ?: it.segments) }
+                runCatching {
+                    closed.getOrThrow()
+                    repo.complete(key, frames * 1000 / rate, liveSegments, allLevels.toByteArray())
                 }.onFailure { mutableState.update { it.copy(error = "保存処理が中断されました。次回起動時に回収します。") } }
             }
             mutableState.update { it.copy(id = null,paused = false,saving = false) }

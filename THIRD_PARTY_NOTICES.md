@@ -12,11 +12,15 @@ Open Recorder original code: Apache License 2.0. See LICENSE.
 | ONNX Runtime (inside sherpa-onnx) | bundled | MIT, https://github.com/microsoft/onnxruntime |
 | LiteRT-LM | 0.18.1 | Apache-2.0, https://github.com/google-ai-edge/LiteRT-LM |
 | Gson | transitive | Apache-2.0, https://github.com/google/gson |
+| jump3r (Java port of LAME) | 1.0.5 | LGPL-2.1-or-later, https://github.com/Sciss/jump3r — full text in `app/src/main/assets/licenses/LGPL-2.1.txt` |
 | OkHttp / Okio | 4.12.0 / transitive | Apache-2.0, https://github.com/square/okhttp and https://github.com/square/okio |
 | Gradle wrapper | 8.11.1 | Apache-2.0, https://github.com/gradle/gradle |
 | JUnit (test only) | 4.13.2 | EPL-1.0, https://github.com/junit-team/junit4 |
 | Robolectric (test only) | 4.14.1 | MIT, https://github.com/robolectric/robolectric |
 | Hamcrest (test only) | transitive | BSD-3-Clause, https://github.com/hamcrest/JavaHamcrest |
+
+jump3r is used unmodified as a separate library. Its source is available from Maven Central
+(`de.sciss:jump3r:1.0.5`, sources JAR) and the project page above.
 
 ## Models downloaded on request
 

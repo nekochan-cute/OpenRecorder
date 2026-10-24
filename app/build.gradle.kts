@@ -69,6 +69,8 @@ dependencies {
     implementation(files(sherpaAar).builtBy(downloadSherpa))
     // On-device LLM for summaries and translation (Apache-2.0).
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
+    // MP3 encoder, a Java port of LAME (LGPL-2.1).
+    implementation("de.sciss:jump3r:1.0.5")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     // Screen previews rendered on the JVM (ScreenshotTest); run with -Pscreenshots.

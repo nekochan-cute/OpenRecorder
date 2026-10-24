@@ -74,6 +74,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         try {
             ContextCompat.startForegroundService(app,Intent(app,RecordingService::class.java).setAction(RecordingService.START)
                 .putExtra("rate",o.sampleRate).putExtra("channels",o.channels).putExtra("voice",o.voice).putExtra("noise",o.noise)
+                .putExtra("format",o.format)
                 .putExtra("device",device).putExtra("live",o.live && speechReady()))
         } catch(e: Exception) { message.value = "録音を開始できません" }
     }
@@ -132,8 +133,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     }
     fun transcribe(id: String, remote: Boolean) = task("文字起こし中") {
         val r = repo.get(id) ?: error("録音がありません")
-        val result = if(remote) RemoteAi().transcribe(repo.file(r),app.aiSettings.load(),r.durationMs)
-        else Speech.transcribe(app,repo.file(r)) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
+        val wav = repo.wav(r) { p -> busy.value = "準備中 ${(p*100).toInt()}%" }
+        val result = if(remote) RemoteAi().transcribe(wav,app.aiSettings.load(),r.durationMs)
+        else Speech.transcribe(app,wav) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
         repo.update(id) { it.copy(segments = result,summary = "") }
         if(result.isEmpty()) message.value = "音声を認識できませんでした"
     }
@@ -208,8 +210,19 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** AAC/M4A copy for sharing: roughly a tenth of the WAV size. */
     fun exportAac(r: Recording, done: (File) -> Unit) = task("変換中") {
         val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")
-        AudioCodec.encodeAac(repo.file(r),out) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
+        if(repo.format(r) == org.openrecorder.app.audio.RecordFormat.Aac) repo.file(r).copyTo(out, overwrite = true)
+        else AudioCodec.encodeAac(repo.wav(r),out) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
         withContext(Dispatchers.Main) { done(out) }
+    }
+    fun exportMp3(r: Recording, done: (File) -> Unit) = task("変換中") {
+        val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.mp3")
+        if(repo.format(r) == org.openrecorder.app.audio.RecordFormat.Mp3) repo.file(r).copyTo(out, overwrite = true)
+        else org.openrecorder.app.audio.Mp3.encode(repo.wav(r),out) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { done(out) }
+    }
+    fun exportWav(r: Recording, done: (File) -> Unit) = task("変換中") {
+        val wav = repo.wav(r) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { done(wav) }
     }
     fun exportText(r: Recording, kind: String): File {
         val (ext, text) = when(kind) {

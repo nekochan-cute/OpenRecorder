@@ -89,7 +89,7 @@ class ScreenshotTest {
     }
     @Test fun editor() = snap("08-editor") { EditorScreen(meeting, levels, 30_000, false, false, EditorActions()) }
     @Test fun settings() = snap("09-settings") {
-        SettingsScreen(RecordingOptions(), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2",
+        SettingsScreen(RecordingOptions(), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2・Gemma 4 E2B",
             AiConfig(summaryProvider = Provider.OpenRouter), "0.1.0-dev", SettingsActions())
     }
     @Test fun ai() = snap("10-ai") {
