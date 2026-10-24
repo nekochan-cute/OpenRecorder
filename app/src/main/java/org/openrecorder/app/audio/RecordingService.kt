@@ -22,10 +22,11 @@ import java.io.RandomAccessFile
 /**
  * [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last.
  * [live]: captions so far with speakers; [speaking] while the current utterance is still open.
+ * [directional]: null when no direction was requested, else whether the device accepted it.
  */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
     val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val speaking: Boolean = false,
-    val liveStatus: String = "", val input: String = "", val noiseReduction: Boolean = false,
+    val liveStatus: String = "", val input: String = "", val noiseReduction: Boolean = false, val directional: Boolean? = null,
     val saving: Boolean = false, val silenced: Boolean = false)
 
 /** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
@@ -138,6 +139,10 @@ class RecordingService : Service() {
                 if(device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) bluetooth = BluetoothRoute.open(audioManager, device)
                 check(audio.setPreferredDevice(device)) { "マイクを選択できませんでした" }
             }
+            // Directional capture is a hint to the device's audio processing (beamforming); support varies by phone.
+            val direction = intent.getIntExtra("direction", MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED)
+            val directional = if(direction == MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED) null else
+                audio.setPreferredMicrophoneDirection(direction) && audio.setPreferredMicrophoneFieldDimension(intent.getFloatExtra("zoom",0f).coerceIn(-1f,1f))
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
                 suppressor = NoiseSuppressor.create(audio.audioSessionId)?.apply { enabled = true }
             }
@@ -147,7 +152,7 @@ class RecordingService : Service() {
                 RecordFormat.Aac -> ThreadedSink(AdtsSink(repo.file(r), rate, channels))
                 RecordFormat.Mp3 -> ThreadedSink(Mp3Sink(repo.file(r), rate, channels))
             }
-            mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true)
+            mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true, directional = directional)
             recordingCallback = object : AudioManager.AudioRecordingCallback() {
                 override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
                     val silenced = configs.any { it.clientAudioSessionId == audio.audioSessionId && it.isClientSilenced }

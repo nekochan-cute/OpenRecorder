@@ -74,7 +74,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         try {
             ContextCompat.startForegroundService(app,Intent(app,RecordingService::class.java).setAction(RecordingService.START)
                 .putExtra("rate",o.sampleRate).putExtra("channels",o.channels).putExtra("voice",o.voice).putExtra("noise",o.noise)
-                .putExtra("format",o.format)
+                .putExtra("format",o.format).putExtra("direction",o.direction).putExtra("zoom",o.zoom)
                 .putExtra("device",device).putExtra("live",o.live && speechReady()))
         } catch(e: Exception) { message.value = "録音を開始できません" }
     }

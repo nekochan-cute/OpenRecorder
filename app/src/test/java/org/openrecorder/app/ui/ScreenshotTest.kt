@@ -77,7 +77,7 @@ class ScreenshotTest {
     @Test fun libraryEmpty() = snap("02-library-empty") { LibraryScreen(emptyList(), CaptureState(), LibraryActions()) }
     @Test fun recording() = snap("03-recording") {
         val recent = List(400) { i -> (0.25 + 0.6 * abs(sin(i / 6.0)) * abs(sin(i / 31.0))).toFloat() }
-        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", speaking = true,
+        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", directional = true, speaking = true,
             live = segments.take(4)),
             meeting.copy(marks = listOf(Mark("m", 740_000, ""))), RecordActions())
     }
@@ -89,7 +89,7 @@ class ScreenshotTest {
     }
     @Test fun editor() = snap("08-editor") { EditorScreen(meeting, levels, 30_000, false, false, EditorActions()) }
     @Test fun settings() = snap("09-settings") {
-        SettingsScreen(RecordingOptions(), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2・Gemma 4 E2B",
+        SettingsScreen(RecordingOptions(direction = android.media.MicrophoneDirection.MIC_DIRECTION_AWAY_FROM_USER), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2・Gemma 4 E2B",
             AiConfig(summaryProvider = Provider.OpenRouter), "0.1.0-dev", SettingsActions())
     }
     @Test fun ai() = snap("10-ai") {
