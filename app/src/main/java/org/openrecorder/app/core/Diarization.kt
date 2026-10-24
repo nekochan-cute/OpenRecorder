@@ -3,7 +3,7 @@ package org.openrecorder.app.core
 import kotlin.math.sqrt
 
 /**
- * Offline speaker clustering for per-utterance speaker embeddings (Vosk x-vectors).
+ * Offline speaker clustering for per-utterance speaker embeddings.
  * Leader clustering seeds speakers from reliable (long) utterances, k-means style passes refine
  * the centroids, close clusters are merged, and short or vector-less utterances inherit the
  * nearest speaker. Linear in the number of utterances, so hour-long recordings stay fast.

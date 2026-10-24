@@ -15,13 +15,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.openrecorder.app.*
 import org.openrecorder.app.core.Levels
+import org.openrecorder.app.core.Segment
 import org.openrecorder.app.core.Wav
 import org.openrecorder.app.ai.LiveTranscriber
 import java.io.RandomAccessFile
 
-/** [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last. */
+/**
+ * [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last.
+ * [live]: captions so far; [speaking] while the current utterance is still open.
+ */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
-    val levels: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
+    val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val speaking: Boolean = false,
+    val liveStatus: String = "", val input: String = "", val noiseReduction: Boolean = false,
     val saving: Boolean = false, val silenced: Boolean = false)
 
 /** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
@@ -146,8 +151,8 @@ class RecordingService : Service() {
             audio.registerAudioRecordingCallback(mainExecutor,recordingCallback)
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"OpenRecorder:capture").apply { acquire() }
             if(intent.getBooleanExtra("live",false)) {
-                live = try { LiveTranscriber(this, rate, channels, scope) { text -> mutableState.update { if(it.id == r.id) it.copy(liveText = text) else it } } }
-                catch(e: Exception) { mutableState.update { it.copy(liveText = "文字起こしを開始できません。録音は継続します。") }; null }
+                live = try { LiveTranscriber(this, rate, channels, scope) { segments, speaking -> mutableState.update { if(it.id == r.id) it.copy(live = segments, speaking = speaking) else it } } }
+                catch(e: Throwable) { mutableState.update { it.copy(liveStatus = "文字起こしを開始できませんでした") }; null }
             }
             RandomAccessFile(repo.file(r),"rw").use { output ->
                 output.seek(44)
@@ -178,6 +183,7 @@ class RecordingService : Service() {
                     }
                     output.write(bytes); savedBytes += bytes.size
                     live?.offer(buffer.copyOf(n))
+                    live?.problem?.let { problem -> if(mutableState.value.liveStatus.isEmpty()) mutableState.update { it.copy(liveStatus = problem) } }
                     val duration = savedBytes / (channels * 2) * 1000 / rate
                     if(duration - lastPublish >= 50) {
                         lastPublish = duration
@@ -198,7 +204,7 @@ class RecordingService : Service() {
             runCatching { recorder?.stop() }; runCatching { recorder?.release() }; runCatching { suppressor?.release() }
             runCatching { bluetooth?.close() }
             if(wake?.isHeld == true) wake?.release(); wake = null
-            val liveSegments = runCatching { withTimeout(30000) { live?.finish() } }.getOrNull()
+            val liveSegments = runCatching { withTimeout(60000) { live?.finish() } }.getOrNull()?.takeIf { it.isNotEmpty() }
             id?.let { key ->
                     runCatching {
                     val r = repo.get(key)!!; val info = Wav.repair(repo.file(r),r.sampleRate,r.channels)

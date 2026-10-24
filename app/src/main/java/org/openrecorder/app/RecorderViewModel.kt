@@ -74,7 +74,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         try {
             ContextCompat.startForegroundService(app,Intent(app,RecordingService::class.java).setAction(RecordingService.START)
                 .putExtra("rate",o.sampleRate).putExtra("channels",o.channels).putExtra("voice",o.voice).putExtra("noise",o.noise)
-                .putExtra("device",device).putExtra("live",o.live && modelAvailable()))
+                .putExtra("device",device).putExtra("live",o.live && speechReady()))
         } catch(e: Exception) { message.value = "録音を開始できません" }
     }
     fun command(action: String) {
@@ -133,7 +133,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun transcribe(id: String, remote: Boolean) = task("文字起こし中") {
         val r = repo.get(id) ?: error("録音がありません")
         val result = if(remote) RemoteAi().transcribe(repo.file(r),app.aiSettings.load(),r.durationMs)
-        else LocalSpeech.transcribe(app,repo.file(r)) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
+        else Speech.transcribe(app,repo.file(r)) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
         repo.update(id) { it.copy(segments = result,summary = "") }
         if(result.isEmpty()) message.value = "音声を認識できませんでした"
     }
@@ -174,12 +174,16 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** OpenRouter sign-in; returns the issued key. */
     suspend fun loginOpenRouter(openBrowser: (String) -> Unit): String =
         OpenRouterAuth.login(app.packageName) { url -> withContext(Dispatchers.Main) { openBrowser(url) } }
-    fun importModel(uri: Uri) = task("モデルを展開・検証中") {
-        val speaker = LocalSpeech.importModel(app,uri)
-        message.value = if(speaker) "話者モデルを追加しました" else "文字起こしモデルを追加しました"
-    }
-    fun modelAvailable() = LocalSpeech.available(app)
-    fun speakerModelAvailable() = LocalSpeech.speakerAvailable(app)
+    val models = ModelStore(app)
+    val downloads = ModelDownloadService.state
+    /** Bumped when installed models change, so screens re-read the store. */
+    val modelsVersion = MutableStateFlow(0)
+    fun download(spec: ModelSpec) = ModelDownloadService.start(app, spec.id)
+    fun cancelDownload(spec: ModelSpec) = ModelDownloadService.cancel(app, spec.id)
+    fun deleteModel(spec: ModelSpec) { models.delete(spec); modelsVersion.value++ }
+    fun chooseModel(spec: ModelSpec) { models.choose(spec); modelsVersion.value++ }
+    fun speechReady() = SpeechEngine.ready(models)
+    fun speakerReady() = models.installed(ModelCatalog.speaker)
     /** AAC/M4A copy for sharing: roughly a tenth of the WAV size. */
     fun exportAac(r: Recording, done: (File) -> Unit) = task("変換中") {
         val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")
