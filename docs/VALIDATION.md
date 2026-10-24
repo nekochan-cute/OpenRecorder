@@ -8,7 +8,7 @@
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
 ```
 
-JVMの単体テスト（56件）:
+JVMの単体テスト（57件）:
 
 | 分野 | 確認内容 |
 | --- | --- |
@@ -17,7 +17,7 @@ JVMの単体テスト（56件）:
 | WAV読取 | 追加RIFFチャンク、切断されたデータの拒否、編集元と出力先が同じ場合の拒否 |
 | タイムライン | 削除領域のマーク除外と時刻移動、区間の境界、切断された文章の除外、全削除と重複区間の拒否 |
 | 字幕 | SRT・WebVTTの時刻形式、話者タグ、ロケール非依存 |
-| 波形 | dB目盛りへの変換、50 msごとのレベル、最大振幅の扱い |
+| 波形 | dB目盛りへの変換、50 msごとのレベル、最大振幅の扱い、再生位置を0〜60秒で動かしても時刻目盛りの描画で落ちない |
 | 音声処理 | FFTの往復、ノイズ低減（一定の雑音を10 dB以上低減、音声相当は±2 dB以内）、音量の調整（-18 dBFS±1 dB、最大+24 dB）、リミッター、低音除去と音量維持、ステレオの左右、元ファイル不変 |
 | 話者分離 | 2人の分離と登場順、1人は1人のまま、短い発話の引き継ぎ、話者数の上限 |
 | 文章 | 空白区切りの日本語の連結、文字種の判定 |
@@ -74,7 +74,7 @@ JVMの単体テスト（56件）:
 ## 実測結果
 
 - ビルド: assembleDebug・assembleDebugAndroidTest成功（Kotlin 2.4.21）。
-- 単体テスト: 56件成功、失敗0件（画面のプレビュー13件は`-Pscreenshots`指定時のみ実行）。
+- 単体テスト: 57件成功、失敗0件（画面のプレビュー13件は`-Pscreenshots`指定時のみ実行）。
 - Android Lint: エラー0件。警告17件（GradleDependency 10件、Recycle 3件、UseKtx 3件、OldTargetApi 1件）。Recycleは`openInputStream(...)!!.use`をLintが追跡できない誤検知です。
 - arm64 APK: apksigner検証成功（debug署名）、`zipalign -c -P 16 4`成功、80,415,200 bytes。sherpa-onnxとLiteRT-LMのネイティブライブラリ（約40 MB）を非圧縮で格納しています。
 - 端末テスト: この開発環境にはKVMがないため、CIの`instrumented`ジョブで実行します。
