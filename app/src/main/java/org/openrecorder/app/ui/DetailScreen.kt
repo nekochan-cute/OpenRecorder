@@ -381,6 +381,7 @@ private fun ShareSheet(r: Recording, dismiss: () -> Unit, share: (String) -> Uni
         Column(Modifier.padding(bottom = 24.dp)) {
             Text("共有", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
             ShareRow(Icons.Rounded.AudioFile, "音声", "M4A") { share("m4a") }
+            ShareRow(Icons.Rounded.AudioFile, "音声", "MP3") { share("mp3") }
             ShareRow(Icons.Rounded.AudioFile, "音声（無圧縮）", "WAV") { share("wav") }
             if (r.segments.isNotEmpty()) {
                 ShareRow(Icons.AutoMirrored.Rounded.Notes, "文字起こし", "テキスト") { share("transcript") }

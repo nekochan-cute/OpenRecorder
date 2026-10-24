@@ -25,6 +25,8 @@ class SettingsActions(
     val ai: () -> Unit = {}, val licenses: () -> Unit = {}, val source: () -> Unit = {},
 )
 
+private val formats = listOf("aac" to "AAC（M4A）", "mp3" to "MP3", "wav" to "WAV（無圧縮）")
+
 /** [models]: one-line state of the downloaded models, e.g. "ReazonSpeech v2・話者あり". */
 @Composable
 fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speechModel: Boolean, models: String, ai: AiConfig,
@@ -35,6 +37,7 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
     }) { padding ->
         Column(Modifier.padding(padding).readable().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             SectionHeader("録音")
+            SettingRow("形式", formats.firstOrNull { it.first == o.format }?.second ?: "AAC（M4A）", Icons.Rounded.AudioFile) { dialog = "format" }
             SettingRow("音質", if (o.sampleRate == 16000) "標準（16 kHz）" else "高音質（48 kHz）", Icons.Rounded.HighQuality) { dialog = "quality" }
             SettingRow("マイク", devices.firstOrNull { it.first == o.device }?.second ?: "自動", Icons.Rounded.Mic) { dialog = "mic" }
             SwitchRow("ステレオ", o.channels == 2, icon = Icons.Rounded.SurroundSound) { actions.options(o.copy(channels = if (it) 2 else 1)) }
@@ -55,6 +58,7 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
         }
     }
     when (dialog) {
+        "format" -> Choice("形式", formats, o.format, { dialog = "" }) { actions.options(o.copy(format = it)); dialog = "" }
         "quality" -> Choice("音質", listOf(16000 to "標準（16 kHz）", 48000 to "高音質（48 kHz）"), o.sampleRate, { dialog = "" }) {
             actions.options(o.copy(sampleRate = it)); dialog = ""
         }
