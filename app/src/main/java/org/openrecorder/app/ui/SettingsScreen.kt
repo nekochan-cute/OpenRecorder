@@ -21,12 +21,13 @@ import org.openrecorder.app.ai.AiConfig
 import org.openrecorder.app.data.RecordingOptions
 
 class SettingsActions(
-    val back: () -> Unit = {}, val options: (RecordingOptions) -> Unit = {}, val addModel: () -> Unit = {},
-    val getModels: () -> Unit = {}, val ai: () -> Unit = {}, val licenses: () -> Unit = {}, val source: () -> Unit = {},
+    val back: () -> Unit = {}, val options: (RecordingOptions) -> Unit = {}, val models: () -> Unit = {},
+    val ai: () -> Unit = {}, val licenses: () -> Unit = {}, val source: () -> Unit = {},
 )
 
+/** [models]: one-line state of the downloaded models, e.g. "ReazonSpeech v2・話者あり". */
 @Composable
-fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speechModel: Boolean, speakerModel: Boolean, ai: AiConfig,
+fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speechModel: Boolean, models: String, ai: AiConfig,
                    version: String, actions: SettingsActions) {
     var dialog by remember { mutableStateOf("") }
     Scaffold(topBar = {
@@ -41,11 +42,8 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
             SwitchRow("声を優先", o.voice, icon = Icons.Rounded.RecordVoiceOver) { actions.options(o.copy(voice = it)) }
             SwitchRow("録音中に文字起こし", o.live && speechModel, if (speechModel) null else "文字起こしモデルが必要です", speechModel, Icons.Rounded.ClosedCaption) { actions.options(o.copy(live = it)) }
 
-            SectionHeader("文字起こし")
-            SettingRow("文字起こしモデル", if (speechModel) "追加済み" else "未追加", Icons.Rounded.Subtitles, check = speechModel)
-            SettingRow("話者モデル", if (speakerModel) "追加済み" else "未追加", Icons.Rounded.Groups, check = speakerModel)
-            SettingRow("モデルを追加", "ZIPファイルを選択", Icons.Rounded.Add, onClick = actions.addModel)
-            SettingRow("モデルを入手", "alphacephei.com/vosk/models", Icons.Rounded.Download, external = true, onClick = actions.getModels)
+            SectionHeader("端末内のAI")
+            SettingRow("モデル", models, Icons.Rounded.Download, chevron = true, onClick = actions.models)
 
             SectionHeader("AI連携")
             SettingRow("AIサービス", aiSummary(ai), Icons.Rounded.AutoAwesome, chevron = true, onClick = actions.ai)

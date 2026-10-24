@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TextTest {
-    @Test fun joinsJapaneseVoskTokensButKeepsLatinSpacing() {
+    @Test fun joinsSpaceSeparatedJapaneseTokensButKeepsLatinSpacing() {
         assertEquals("今日はいい天気です", Text.joinTokens("今日 は いい 天気 です"))
         assertEquals("Pythonを使ったopen sourceの話", Text.joinTokens("Python を 使った open source の 話"))
         assertEquals("hello world", Text.joinTokens("  hello   world "))

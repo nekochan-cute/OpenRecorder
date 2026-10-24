@@ -13,6 +13,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.openrecorder.app.ai.AiConfig
+import org.openrecorder.app.ai.ModelCatalog
 import org.openrecorder.app.ai.Provider
 import org.openrecorder.app.audio.CaptureState
 import org.openrecorder.app.core.LocalSummary
@@ -76,7 +77,8 @@ class ScreenshotTest {
     @Test fun libraryEmpty() = snap("02-library-empty") { LibraryScreen(emptyList(), CaptureState(), LibraryActions()) }
     @Test fun recording() = snap("03-recording") {
         val recent = List(400) { i -> (0.25 + 0.6 * abs(sin(i / 6.0)) * abs(sin(i / 31.0))).toFloat() }
-        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", liveText = "それでは発売日は十一月三十日に決定します。田中さんは金曜日までに"),
+        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", speaking = true,
+            live = segments.take(4)),
             meeting.copy(marks = listOf(Mark("m", 740_000, ""))), RecordActions())
     }
     @Test fun detailAudio() = snap("04-detail-audio") { DetailScreen(DetailState(meeting, levels, 12_400, false, localModel = true), DetailActions()) }
@@ -87,12 +89,18 @@ class ScreenshotTest {
     }
     @Test fun editor() = snap("08-editor") { EditorScreen(meeting, levels, 30_000, false, false, EditorActions()) }
     @Test fun settings() = snap("09-settings") {
-        SettingsScreen(RecordingOptions(), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, false,
+        SettingsScreen(RecordingOptions(), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2",
             AiConfig(summaryProvider = Provider.OpenRouter), "0.1.0-dev", SettingsActions())
     }
     @Test fun ai() = snap("10-ai") {
         AiScreen(AiConfig(summaryProvider = Provider.Google, summaryModel = "gemini-2.5-flash", keys = mapOf(Provider.Google to "key"),
             transcriptionProvider = Provider.Groq, transcriptionModel = "whisper-large-v3-turbo"), AiActions())
+    }
+    @Test fun models() = snap("12-models") {
+        val store = listOf(ModelCatalog.reazon to true, ModelCatalog.senseVoice to false, ModelCatalog.vad to true, ModelCatalog.speaker to false)
+        ModelsScreen(store.map { (spec, installed) ->
+            ModelRow(spec, installed, spec == ModelCatalog.reazon, if (spec == ModelCatalog.speaker) org.openrecorder.app.ai.DownloadState(0.42f) else null)
+        }, ModelActions())
     }
     @Test fun trash() = snap("11-trash") { TrashScreen(library.take(2).map { it.copy(deletedAt = now) }, {}, {}, {}, {}) }
 }
