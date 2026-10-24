@@ -151,6 +151,12 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun updateMark(id: String, markId: String, text: String) = task("マークを保存中") {
         repo.update(id) { it.copy(marks = it.marks.map { m -> if(m.id == markId) m.copy(text = text.trim()) else m }) }
     }
+    /** Generative summary with the on-device LLM, in parts for long recordings. */
+    fun summarizeWithLlm(id: String, template: String) = task("要約中") {
+        val r = repo.get(id) ?: error("録音がありません")
+        val (title, body) = LocalLlm.use(app) { model -> LlmTasks.summarize(r.segments, template, model) { p -> busy.value = "要約中 ${(p*100).toInt()}%" } }
+        repo.update(id) { it.copy(title = title.ifBlank { it.title }, summary = body) }
+    }
     fun summarize(id: String, template: String) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
         val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template)
@@ -182,8 +188,13 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun cancelDownload(spec: ModelSpec) = ModelDownloadService.cancel(app, spec.id)
     fun deleteModel(spec: ModelSpec) { models.delete(spec); modelsVersion.value++ }
     fun chooseModel(spec: ModelSpec) { models.choose(spec); modelsVersion.value++ }
+    fun importLlm(uri: Uri) = task("モデルを追加中") {
+        models.importLlm(uri) { p -> busy.value = "モデルを追加中 ${(p*100).toInt()}%" }
+        models.choose(ModelCatalog.customLlm); modelsVersion.value++
+    }
     fun speechReady() = SpeechEngine.ready(models)
     fun speakerReady() = models.installed(ModelCatalog.speaker)
+    fun llmReady() = LocalLlm.supported && LocalLlm.ready(app)
     /** AAC/M4A copy for sharing: roughly a tenth of the WAV size. */
     fun exportAac(r: Recording, done: (File) -> Unit) = task("変換中") {
         val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")

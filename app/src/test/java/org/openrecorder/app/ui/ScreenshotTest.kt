@@ -97,10 +97,11 @@ class ScreenshotTest {
             transcriptionProvider = Provider.Groq, transcriptionModel = "whisper-large-v3-turbo"), AiActions())
     }
     @Test fun models() = snap("12-models") {
-        val store = listOf(ModelCatalog.reazon to true, ModelCatalog.senseVoice to false, ModelCatalog.vad to true, ModelCatalog.speaker to false)
+        val store = listOf(ModelCatalog.reazon to true, ModelCatalog.senseVoice to false, ModelCatalog.vad to true, ModelCatalog.speaker to true,
+            ModelCatalog.gemma to false, ModelCatalog.swallow to true)
         ModelsScreen(store.map { (spec, installed) ->
-            ModelRow(spec, installed, spec == ModelCatalog.reazon, if (spec == ModelCatalog.speaker) org.openrecorder.app.ai.DownloadState(0.42f) else null)
-        }, ModelActions())
+            ModelRow(spec, installed, spec == ModelCatalog.reazon || spec == ModelCatalog.swallow, if (spec == ModelCatalog.gemma) org.openrecorder.app.ai.DownloadState(0.42f) else null)
+        }, true, ModelActions())
     }
     @Test fun trash() = snap("11-trash") { TrashScreen(library.take(2).map { it.copy(deletedAt = now) }, {}, {}, {}, {}) }
 }

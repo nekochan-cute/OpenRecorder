@@ -102,6 +102,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
     val importAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.import(uri, displayName(context, uri)?.substringBeforeLast('.') ?: "取り込んだ音声")
     }
+    val importLlm = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importLlm(uri) }
     var photoTarget by remember { mutableStateOf<Pair<String, Long>?>(null) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val t = photoTarget
@@ -137,7 +138,8 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     val options by vm.options.collectAsStateWithLifecycle()
                     val ai by vm.ai.collectAsStateWithLifecycle()
                     vm.modelsVersion.collectAsStateWithLifecycle().value
-                    val modelsLabel = vm.models.active(org.openrecorder.app.ai.ModelKind.Speech)?.title ?: "未ダウンロード"
+                    val speech = vm.models.active(org.openrecorder.app.ai.ModelKind.Speech)
+                    val modelsLabel = listOfNotNull(speech?.title, vm.models.active(org.openrecorder.app.ai.ModelKind.Llm)?.title).joinToString("・").ifBlank { "未ダウンロード" }
                     SettingsScreen(options, inputDevices(context), vm.speechReady(), modelsLabel, ai, BuildConfig.VERSION_NAME,
                         SettingsActions(back = ::back, options = vm::setOptions, models = { go("models") }, ai = { go("ai") }, licenses = { go("licenses") },
                             source = { openUrl("https://github.com/nekochan-cute/OpenRecorder") }))
@@ -151,11 +153,11 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     vm.modelsVersion.collectAsStateWithLifecycle().value
                     // Re-read the store when a download finishes.
                     LaunchedEffect(downloads.keys) { vm.modelsVersion.value++ }
-                    val rows = org.openrecorder.app.ai.ModelCatalog.all.map { spec ->
+                    val rows = (org.openrecorder.app.ai.ModelCatalog.all + org.openrecorder.app.ai.ModelCatalog.customLlm).map { spec ->
                         ModelRow(spec, vm.models.installed(spec), vm.models.active(spec.kind)?.id == spec.id, downloads[spec.id])
                     }
-                    ModelsScreen(rows, ModelActions(back = ::back, download = vm::download, cancel = vm::cancelDownload,
-                        delete = vm::deleteModel, choose = vm::chooseModel))
+                    ModelsScreen(rows, org.openrecorder.app.ai.LocalLlm.supported, ModelActions(back = ::back, download = vm::download, cancel = vm::cancelDownload,
+                        delete = vm::deleteModel, choose = vm::chooseModel, importLlm = { importLlm.launch(arrayOf("*/*")) }))
                 }
             }
         }
@@ -184,7 +186,7 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
     val ai by vm.ai.collectAsStateWithLifecycle()
     LaunchedEffect(r.id) { vm.load(r.id) }
     DetailScreen(DetailState(r, levels, position, playing, options.playbackSpeed, options.skipSilence, busy,
-        vm.speechReady(), ai.transcriptionReady, ai.summaryReady, all.map { it.folder }.filter(String::isNotBlank).distinct().sorted()),
+        vm.speechReady(), ai.transcriptionReady, ai.summaryReady, vm.llmReady(), all.map { it.folder }.filter(String::isNotBlank).distinct().sorted()),
         DetailActions(back = back, playPause = vm::togglePlay, seek = vm::seek,
             speed = { vm.setOptions(options.copy(playbackSpeed = it)) }, skipSilence = { vm.setOptions(options.copy(skipSilence = it)) },
             favorite = { vm.favorite(r.id) }, rename = { vm.rename(r.id, it) }, move = { vm.moveToFolder(r.id, it) },
@@ -195,7 +197,7 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
                 "wav" -> share(vm.repo.file(r), "audio/wav")
                 else -> share(vm.exportText(r, kind), when (kind) { "srt" -> "application/x-subrip"; "vtt" -> "text/vtt"; "summary" -> "text/markdown"; else -> "text/plain" })
             } },
-            transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, remote -> if (remote) vm.summarize(r.id, t) else vm.summarizeLocal(r.id, t) },
+            transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, engine -> when (engine) { "api" -> vm.summarize(r.id, t); "llm" -> vm.summarizeWithLlm(r.id, t); else -> vm.summarizeLocal(r.id, t) } },
             addMark = { vm.mark(r.id, it) }, addPhoto = { pickPhoto(r.id, it) }, editMark = { m, t -> vm.updateMark(r.id, m, t) },
             deleteMark = { vm.deleteMark(r.id, it) }, photoFile = { runCatching { vm.repo.photoFile(it) }.getOrNull() },
             openPhoto = { name -> runCatching {
