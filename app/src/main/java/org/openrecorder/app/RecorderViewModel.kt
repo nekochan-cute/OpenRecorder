@@ -13,6 +13,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.openrecorder.app.ai.*
+import org.openrecorder.app.audio.AudioCodec
 import org.openrecorder.app.audio.RecordingService
 import org.openrecorder.app.core.*
 import java.io.File
@@ -106,6 +107,21 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         repo.update(id) { it.copy(segments = result,summary = "") }
         message.value = if(result.isEmpty()) "音声を認識できませんでした" else "文字起こしを保存しました"
     }
+    /** Offline extractive summary; also proposes a title from the transcript's keywords. */
+    fun summarizeLocal(id: String, template: String) = task("端末内で要約中") {
+        val r = repo.get(id) ?: error("録音がありません")
+        require(r.segments.isNotEmpty()) { "先に文字起こしを実行してください" }
+        val result = withContext(Dispatchers.Default) { LocalSummary.summarize(r.segments,template) }
+        repo.update(id) { it.copy(title = result.title.ifBlank { it.title }, summary = result.body) }
+        message.value = "端末内で要約しました"
+    }
+    fun process(id: String, options: ProcessOptions) = task("音声を処理中") {
+        val processed = repo.process(id,options) { p -> busy.value = "音声を処理中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { load(processed.id); message.value = "元音声を残して処理版を保存しました" }
+    }
+    fun updateMark(id: String, markId: String, text: String) = task("マークを保存中") {
+        repo.update(id) { it.copy(marks = it.marks.map { m -> if(m.id == markId) m.copy(text = text.ifBlank { "マーク" }) else m }) }
+    }
     fun summarize(id: String, template: String) = task("要約を生成中") {
         val r = repo.get(id) ?: error("録音がありません")
         val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template)
@@ -118,19 +134,34 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         repo.update(id) { it.copy(segments = it.segments.map { s -> if(s.speaker == old) s.copy(speaker=next.trim()) else s }, summary="") }
     }
     fun deleteMark(id: String, markId: String) = task("マークを削除中") { repo.update(id) { it.copy(marks=it.marks.filterNot { m -> m.id == markId }) } }
-    fun import(uri: Uri, title: String) = task("WAVを取り込み中") { val r = repo.importWav(uri,title); withContext(Dispatchers.Main) { load(r.id) } }
+    fun import(uri: Uri, title: String) = task("音声を取り込み中") {
+        val r = repo.importAudio(uri,title) { p -> busy.value = "音声を変換中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { load(r.id) }
+    }
     fun config() = app.aiSettings.load()
     fun saveConfig(config: AiConfig) = task("設定を保存中") { app.aiSettings.save(config); message.value = "設定を保存しました" }
-    fun importModel(uri: Uri) = task("文字起こしモデルを展開・検証中") { LocalSpeech.importModel(app,uri); message.value = "端末内モデルを取り込みました" }
+    fun importModel(uri: Uri) = task("モデルを展開・検証中") {
+        val speaker = LocalSpeech.importModel(app,uri)
+        message.value = if(speaker) "話者モデルを取り込みました。次回の端末内文字起こしから話者を分離します" else "端末内の文字起こしモデルを取り込みました"
+    }
     fun modelAvailable() = LocalSpeech.available(app)
+    fun speakerModelAvailable() = LocalSpeech.speakerAvailable(app)
+    /** AAC/M4A copy for sharing: roughly a tenth of the WAV size. */
+    fun exportAac(r: Recording, done: (File) -> Unit) = task("M4Aへ変換中") {
+        val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")
+        AudioCodec.encodeAac(repo.file(r),out) { p -> busy.value = "M4Aへ変換中 ${(p*100).toInt()}%" }
+        withContext(Dispatchers.Main) { done(out) }
+    }
     fun exportText(r: Recording, kind: String): File {
         val (ext, text) = when(kind) {
             "srt" -> "srt" to subtitles(r.segments)
+            "vtt" -> "vtt" to webVtt(r.segments)
             "summary" -> "md" to "# ${r.title}\n\n${r.summary}\n"
             "marks" -> "txt" to r.marks.joinToString("\n") { "${timeLabel(it.timeMs)} ${it.text}" }
             else -> "txt" to r.segments.joinToString("\n") { "[${timeLabel(it.startMs)}] ${it.speaker} ${it.text}" }
         }
-        return File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${r.id}-$kind.$ext").apply { writeText(text) }
+        return File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}-$kind.$ext").apply { writeText(text) }
     }
+    private fun safeName(title: String) = title.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1f]"),"_").take(80).ifBlank { "recording" }
     override fun onCleared() { player.release(); super.onCleared() }
 }
