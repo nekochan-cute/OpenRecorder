@@ -26,8 +26,9 @@ fun SettingsScreen(vm:RecorderViewModel,locked:Boolean) {
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri -> if(uri!=null) vm.importModel(uri)}
     LazyColumn(Modifier.fillMaxSize().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp),contentPadding=PaddingValues(vertical=20.dp)) {
         item {Text("端末内の文字起こし",style=MaterialTheme.typography.headlineSmall)
-            Text(if(vm.modelAvailable()) "Voskモデルを導入済みです。" else "モデルはまだ導入されていません。")
-            Text("モデルのZIPを取り込むと、通信せずに録音中・録音後の文字起こしを実行できます。日本語にはvosk-model-small-ja-0.22が候補です。",style=MaterialTheme.typography.bodyMedium)
+            Text("文字起こしモデル: ${if(vm.modelAvailable()) "導入済み" else "未導入"}")
+            Text("話者モデル: ${if(vm.speakerModelAvailable()) "導入済み（話者を自動分離します）" else "未導入"}")
+            Text("モデルのZIPを取り込むと、通信せずに録音中・録音後の文字起こしを実行できます。日本語にはvosk-model-small-ja-0.22が候補です。話者分離にはvosk-model-spk-0.4のZIPを同じボタンから取り込みます。種類はZIPの中身から判別します。",style=MaterialTheme.typography.bodyMedium)
             Row {
                 OutlinedButton(onClick={picker.launch(arrayOf("application/zip","application/octet-stream","application/x-zip-compressed"))},enabled=!locked) {Text("モデルZIPを取り込む")}
                 TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,"https://alphacephei.com/vosk/models".toUri()))}}) {Text("配布元")}
