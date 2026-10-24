@@ -76,7 +76,8 @@ private fun Status(capture: CaptureState) {
                 color = colors.onSurfaceVariant)
         }
         if (capture.silenced) Text("他のアプリがマイクを使用中です", style = MaterialTheme.typography.labelMedium, color = colors.error, textAlign = TextAlign.Center)
-        else if (capture.input.isNotBlank()) Text(capture.input, style = MaterialTheme.typography.labelMedium, color = colors.outline)
+        else if (capture.input.isNotBlank()) Text(listOfNotNull(capture.input, when (capture.directional) { true -> "指向性オン"; false -> "指向性は非対応"; null -> null })
+            .joinToString("  ·  "), style = MaterialTheme.typography.labelMedium, color = colors.outline)
     }
 }
 

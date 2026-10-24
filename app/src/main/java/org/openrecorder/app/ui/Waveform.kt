@@ -19,6 +19,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.height
 import org.openrecorder.app.core.Levels
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -173,5 +174,21 @@ fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit, modifier
         drawRoundRect(colors.outlineVariant, Offset(0f, y - h / 2), Size(size.width, h), CornerRadius(h / 2))
         drawRoundRect(colors.primary, Offset(0f, y - h / 2), Size(size.width * fraction, h), CornerRadius(h / 2))
         drawCircle(colors.primary, (if (drag != null) 9 else 7).dp.toPx(), Offset(size.width * fraction, y))
+    }
+}
+
+/** Thin value slider matching [SeekBar]; for settings such as strength or zoom. */
+@Composable
+fun ThinSlider(value: Float, onChange: (Float) -> Unit, modifier: Modifier = Modifier, range: ClosedFloatingPointRange<Float> = 0f..1f) {
+    val colors = MaterialTheme.colorScheme
+    val span = range.endInclusive - range.start
+    fun at(x: Float, width: Int) = (range.start + (x / width).coerceIn(0f, 1f) * span)
+    Canvas(modifier.height(32.dp).semantics { contentDescription = "%.0f%%".format(java.util.Locale.ROOT, (value - range.start) / span * 100) }
+        .pointerInput(range) { detectTapGestures { onChange(at(it.x, size.width)) } }
+        .pointerInput(range) { detectHorizontalDragGestures { change, _ -> change.consume(); onChange(at(change.position.x, size.width)) } }) {
+        val y = size.height / 2; val h = 4.dp.toPx(); val f = ((value - range.start) / span).coerceIn(0f, 1f)
+        drawRoundRect(colors.outlineVariant, Offset(0f, y - h / 2), Size(size.width, h), CornerRadius(h / 2))
+        drawRoundRect(colors.primary, Offset(0f, y - h / 2), Size(size.width * f, h), CornerRadius(h / 2))
+        drawCircle(colors.primary, 8.dp.toPx(), Offset(size.width * f, y))
     }
 }
