@@ -161,7 +161,7 @@ private fun RecordingList(vm: RecorderViewModel, all: List<Recording>, busy: Boo
             if(filtered.isEmpty()) item {
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(if(query.isBlank()) "録音はまだありません" else "一致する録音がありません",style=MaterialTheme.typography.titleMedium)
-                    Text(if(filter=="trash") "削除した録音は、完全削除するまで保持されます。" else "録音を始めるか、16bit PCM WAVを取り込んでください。")
+                    Text(if(filter=="trash") "削除した録音は、完全削除するまで保持されます。" else "録音を始めるか、音声ファイル（WAV・M4A・MP3など）を取り込んでください。")
                 } }
             }
             items(filtered,key={it.id}) { r ->
@@ -181,7 +181,7 @@ private fun RecordingList(vm: RecorderViewModel, all: List<Recording>, busy: Boo
             }
         }
         Row(Modifier.fillMaxWidth().padding(bottom=12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick={pick.launch(arrayOf("audio/wav","audio/x-wav","audio/wave"))},enabled=!busy && capture.id == null) { Text("WAV取込") }
+            OutlinedButton(onClick={pick.launch(arrayOf("audio/*","application/ogg"))},enabled=!busy && capture.id == null) { Text("音声を取込") }
             Button(onClick=record,enabled=!busy,modifier=Modifier.weight(1f)) { Text(if(capture.id != null) "録音に戻る" else "録音を始める") }
         }
     }
@@ -227,10 +227,10 @@ private fun RecordSetup(vm: RecorderViewModel,busy: Boolean) {
             Box { OutlinedButton(onClick={menu=true}) { Text(devices.firstOrNull {it.id==device}?.productName?.toString() ?: "システムの既定") }
                 DropdownMenu(menu,{menu=false}) {
                     DropdownMenuItem(text={Text("システムの既定")},onClick={device=0;menu=false})
-                    devices.forEach { d -> DropdownMenuItem(text={Text("${d.productName}（${d.id}）")},onClick={device=d.id;menu=false}) }
+                    devices.forEach { d -> DropdownMenuItem(text={Text("${d.productName}・${inputType(d.type)}")},onClick={device=d.id;menu=false}) }
                 }
             }
-            Text("選択は端末への要求です。実際に使われた入力は録音画面で確認できます。",style=MaterialTheme.typography.bodySmall)
+            Text("選択は端末への要求です。実際に使われた入力は録音画面で確認できます。Bluetoothマイクは通話用の接続になるため、音質は16kHz程度に制限されます。",style=MaterialTheme.typography.bodySmall)
         }
         item { Button(onClick={
             val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
@@ -273,6 +273,15 @@ private fun CaptureScreen(vm: RecorderViewModel,r: Recording?,busy: Boolean) {
         } } }
         items(r?.marks?.reversed() ?: emptyList(),key={it.id}) { m -> Text("${timeLabel(m.timeMs)}  ${m.text}${if(m.photo != null) " ・写真" else ""}") }
     }
+}
+
+private fun inputType(type: Int) = when(type) {
+    android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "内蔵マイク"
+    android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "有線"
+    android.media.AudioDeviceInfo.TYPE_USB_DEVICE, android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB"
+    android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth"
+    android.media.AudioDeviceInfo.TYPE_TELEPHONY -> "通話"
+    else -> "外部入力"
 }
 
 @Composable
