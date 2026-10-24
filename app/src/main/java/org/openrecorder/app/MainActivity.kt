@@ -195,9 +195,10 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
             share = { kind -> when (kind) {
                 "m4a" -> vm.exportAac(r) { share(it, "audio/mp4") }
                 "wav" -> share(vm.repo.file(r), "audio/wav")
-                else -> share(vm.exportText(r, kind), when (kind) { "srt" -> "application/x-subrip"; "vtt" -> "text/vtt"; "summary" -> "text/markdown"; else -> "text/plain" })
+                else -> share(vm.exportText(r, kind), when (kind) { "srt", "srt-translation" -> "application/x-subrip"; "vtt", "vtt-translation" -> "text/vtt"; "summary" -> "text/markdown"; else -> "text/plain" })
             } },
             transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, engine -> when (engine) { "api" -> vm.summarize(r.id, t); "llm" -> vm.summarizeWithLlm(r.id, t); else -> vm.summarizeLocal(r.id, t) } },
+            translate = { language, remote -> vm.translate(r.id, language, remote) }, clearTranslation = { vm.clearTranslation(r.id) },
             addMark = { vm.mark(r.id, it) }, addPhoto = { pickPhoto(r.id, it) }, editMark = { m, t -> vm.updateMark(r.id, m, t) },
             deleteMark = { vm.deleteMark(r.id, it) }, photoFile = { runCatching { vm.repo.photoFile(it) }.getOrNull() },
             openPhoto = { name -> runCatching {

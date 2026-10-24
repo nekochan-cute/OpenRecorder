@@ -67,7 +67,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // On-device speech: VAD, recognition (ReazonSpeech / SenseVoice) and speaker embeddings (Apache-2.0).
     implementation(files(sherpaAar).builtBy(downloadSherpa))
-    // On-device LLM for summaries (Apache-2.0).
+    // On-device LLM for summaries and translation (Apache-2.0).
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")

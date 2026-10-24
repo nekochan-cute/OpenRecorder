@@ -33,6 +33,25 @@ class LlmTasksTest {
         assertTrue(last.contains("部分ごとの要点")); assertTrue(last.contains("講義"))
     }
 
+    @Test fun translationKeepsTimestampsAndToleratesMissingLines() = runBlocking {
+        val out = LlmTasks.translate(segments, "en", TextGenerator { _, user ->
+            assertTrue(user.contains("English"))
+            "1. Sentence zero\n2) Sentence one\n4、 Sentence three\n5. Sentence four"
+        })
+        assertEquals(segments.map { it.startMs }, out.map { it.startMs })
+        assertEquals(segments.map { it.speaker }, out.map { it.speaker })
+        assertEquals(listOf("Sentence zero", "Sentence one", "", "Sentence three", "Sentence four"), out.map { it.translation })
+        assertEquals(segments.map { it.text }, out.map { it.text })
+    }
+
+    @Test fun translationIsBatched() = runBlocking {
+        val many = List(45) { Segment(it * 1000L, it * 1000L + 500, "s$it") }
+        var calls = 0
+        val out = LlmTasks.translate(many, "ja", TextGenerator { _, user -> calls++; user.lines().filter { it.isNotBlank() && it[0].isDigit() }.joinToString("\n") { it.replace("s", "t") } }, batch = 20)
+        assertEquals(3, calls)
+        assertEquals("t44", out[44].translation)
+    }
+
     @Test fun titleLineIsCleaned() {
         assertEquals("会議のまとめ" to "本文", LlmTasks.splitTitle("\n**タイトル：会議のまとめ**\n本文"))
         assertEquals("一行だけ" to "一行だけ", LlmTasks.splitTitle("一行だけ"))

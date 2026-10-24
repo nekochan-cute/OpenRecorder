@@ -3,7 +3,7 @@ package org.openrecorder.app.core
 import java.util.UUID
 
 data class Mark(val id: String = UUID.randomUUID().toString(), val timeMs: Long, val text: String, val photo: String? = null)
-data class Segment(val startMs: Long, val endMs: Long, val text: String, val speaker: String = "")
+data class Segment(val startMs: Long, val endMs: Long, val text: String, val speaker: String = "", val translation: String = "")
 data class Recording(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
@@ -18,6 +18,8 @@ data class Recording(
     val marks: List<Mark> = emptyList(),
     val segments: List<Segment> = emptyList(),
     val summary: String = "",
+    /** Language code of [Segment.translation], empty when the transcript has not been translated. */
+    val translationLanguage: String = "",
     val sourceId: String? = null,
     val unfinished: Boolean = false,
     val peaks: List<Float> = emptyList()

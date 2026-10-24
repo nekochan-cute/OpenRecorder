@@ -157,6 +157,16 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         val (title, body) = LocalLlm.use(app) { model -> LlmTasks.summarize(r.segments, template, model) { p -> busy.value = "要約中 ${(p*100).toInt()}%" } }
         repo.update(id) { it.copy(title = title.ifBlank { it.title }, summary = body) }
     }
+    /** Translates the transcript sentence by sentence with the on-device LLM or the AI service. */
+    fun translate(id: String, language: String, remote: Boolean) = task("翻訳中") {
+        val r = repo.get(id) ?: error("録音がありません")
+        require(r.segments.isNotEmpty()) { "先に文字起こしをしてください" }
+        val progress = { p: Float -> busy.value = "翻訳中 ${(p*100).toInt()}%" }
+        val translated = if(remote) LlmTasks.translate(r.segments, language, RemoteAi().generator(app.aiSettings.load()), progress = progress)
+            else LocalLlm.use(app) { model -> LlmTasks.translate(r.segments, language, model, progress = progress) }
+        repo.update(id) { it.copy(segments = translated, translationLanguage = language) }
+    }
+    fun clearTranslation(id: String) = task("保存中") { repo.update(id) { it.copy(segments = it.segments.map { s -> s.copy(translation = "") }, translationLanguage = "") } }
     fun summarize(id: String, template: String) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
         val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template)
@@ -205,6 +215,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         val (ext, text) = when(kind) {
             "srt" -> "srt" to subtitles(r.segments)
             "vtt" -> "vtt" to webVtt(r.segments)
+            "srt-translation" -> "srt" to subtitles(r.segments.map { it.copy(text = it.translation.ifBlank { it.text }) })
+            "vtt-translation" -> "vtt" to webVtt(r.segments.map { it.copy(text = it.translation.ifBlank { it.text }) })
+            "translation" -> "txt" to r.segments.joinToString("\n") { "[${timeLabel(it.startMs)}] ${it.speaker} ${it.translation.ifBlank { it.text }}".trim() }
             "summary" -> "md" to "# ${r.title}\n\n${r.summary}\n"
             "marks" -> "txt" to r.marks.joinToString("\n") { "${timeLabel(it.timeMs)} ${it.text}".trim() }
             else -> "txt" to r.segments.joinToString("\n") { "[${timeLabel(it.startMs)}] ${it.speaker} ${it.text}" }
