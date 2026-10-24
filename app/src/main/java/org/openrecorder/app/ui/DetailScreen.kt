@@ -419,7 +419,7 @@ private fun EnhanceSheet(dismiss: () -> Unit, apply: (ProcessOptions) -> Unit) {
             SwitchRow("ノイズを減らす", noise) { noise = it }
             if (noise) Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("弱", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(strength, { strength = it }, Modifier.weight(1f).padding(horizontal = 12.dp))
+                ThinSlider(strength, { strength = it }, Modifier.weight(1f).padding(horizontal = 12.dp))
                 Text("強", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             SwitchRow("声を聞き取りやすく", enhance) { enhance = it }

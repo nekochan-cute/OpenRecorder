@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import org.openrecorder.app.ai.AiConfig
 import org.openrecorder.app.data.RecordingOptions
+import android.media.MicrophoneDirection
 
 class SettingsActions(
     val back: () -> Unit = {}, val options: (RecordingOptions) -> Unit = {}, val models: () -> Unit = {},
@@ -26,6 +27,8 @@ class SettingsActions(
 )
 
 private val formats = listOf("aac" to "AAC（M4A）", "mp3" to "MP3", "wav" to "WAV（無圧縮）")
+private val directions = listOf(MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED to "標準", MicrophoneDirection.MIC_DIRECTION_AWAY_FROM_USER to "前方（相手の声）",
+    MicrophoneDirection.MIC_DIRECTION_TOWARDS_USER to "手前（自分の声）")
 
 /** [models]: one-line state of the downloaded models, e.g. "ReazonSpeech v2・話者あり". */
 @Composable
@@ -39,6 +42,12 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
             SectionHeader("録音")
             SettingRow("形式", formats.firstOrNull { it.first == o.format }?.second ?: "AAC（M4A）", Icons.Rounded.AudioFile) { dialog = "format" }
             SettingRow("音質", if (o.sampleRate == 16000) "標準（16 kHz）" else "高音質（48 kHz）", Icons.Rounded.HighQuality) { dialog = "quality" }
+            SettingRow("指向性", directions.firstOrNull { it.first == o.direction }?.second ?: "標準", Icons.Rounded.SettingsVoice) { dialog = "direction" }
+            if (o.direction != MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED) Row(Modifier.padding(start = 72.dp, end = 24.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("広く", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ThinSlider(o.zoom, { actions.options(o.copy(zoom = it)) }, Modifier.weight(1f).padding(horizontal = 12.dp), -1f..1f)
+                Text("狭く", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             SettingRow("マイク", devices.firstOrNull { it.first == o.device }?.second ?: "自動", Icons.Rounded.Mic) { dialog = "mic" }
             SwitchRow("ステレオ", o.channels == 2, icon = Icons.Rounded.SurroundSound) { actions.options(o.copy(channels = if (it) 2 else 1)) }
             SwitchRow("ノイズ抑制", o.noise, icon = Icons.Rounded.NoiseAware) { actions.options(o.copy(noise = it)) }
@@ -59,6 +68,7 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
     }
     when (dialog) {
         "format" -> Choice("形式", formats, o.format, { dialog = "" }) { actions.options(o.copy(format = it)); dialog = "" }
+        "direction" -> Choice("指向性", directions, o.direction, { dialog = "" }) { actions.options(o.copy(direction = it)); dialog = "" }
         "quality" -> Choice("音質", listOf(16000 to "標準（16 kHz）", 48000 to "高音質（48 kHz）"), o.sampleRate, { dialog = "" }) {
             actions.options(o.copy(sampleRate = it)); dialog = ""
         }
