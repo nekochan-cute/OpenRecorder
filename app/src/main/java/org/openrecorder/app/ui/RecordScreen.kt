@@ -93,15 +93,20 @@ fun RoundAction(icon: ImageVector, label: String, enabled: Boolean = true, badge
     }
 }
 
-/** The last few captions, newest at the bottom. */
+/** The last few captions, newest at the bottom, with speaker colours matching the transcript. */
 @Composable
 private fun LiveCaptions(capture: CaptureState) {
     val colors = MaterialTheme.colorScheme
+    val dark = isDark
+    val speakers = capture.live.map { it.speaker }.filter(String::isNotBlank).distinct()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         capture.live.takeLast(4).forEachIndexed { i, s ->
             val latest = i == capture.live.takeLast(4).lastIndex
-            Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (latest) colors.onSurface else colors.onSurfaceVariant,
-                maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Column {
+                if (s.speaker.isNotBlank()) Text(s.speaker, style = MaterialTheme.typography.labelMedium, color = speakerColor(speakers.indexOf(s.speaker), dark))
+                Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (latest) colors.onSurface else colors.onSurfaceVariant,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
         }
         if (capture.speaking) Text("…", style = MaterialTheme.typography.titleLarge, color = colors.outline)
         if (capture.liveStatus.isNotBlank()) Text(capture.liveStatus, style = MaterialTheme.typography.labelMedium, color = colors.error)

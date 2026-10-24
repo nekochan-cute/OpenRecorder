@@ -55,6 +55,9 @@ object Diarization {
         return IntArray(raw.size) { i -> if (raw[i] < 0) -1 else order.getOrPut(raw[i]) { order.size } }
     }
 
+    /** Unit-length copy, so cosine distance is 1 - dot product. */
+    fun unit(v: FloatArray): FloatArray = normalize(v)
+
     fun distance(a: FloatArray, b: FloatArray): Float {
         var dot = 0f
         for (i in a.indices) dot += a[i] * b[i]
@@ -75,4 +78,31 @@ object Diarization {
     }
 
     fun label(index: Int) = if (index < 0) "" else "話者${index + 1}"
+}
+
+/**
+ * Speaker assignment while recording: each new utterance joins the nearest known speaker, or starts
+ * a new one when nobody is close. Centroids are running means, so speakers stabilise as they talk.
+ * The final transcript is re-clustered offline with [Diarization.cluster] when the recording ends.
+ */
+class OnlineDiarizer(private val threshold: Float = 0.5f, private val maxSpeakers: Int = 8, private val minFrames: Int = 100) {
+    private val sums = ArrayList<FloatArray>()
+    private val centroids = ArrayList<FloatArray>()
+    private var last = -1
+
+    /** Returns the speaker index, or the previous speaker for utterances too short to judge. */
+    fun assign(vector: FloatArray?, frames: Int): Int {
+        if (vector == null || vector.isEmpty() || (frames < minFrames && centroids.isNotEmpty())) return last.coerceAtLeast(if (centroids.isEmpty()) -1 else 0)
+        val v = Diarization.unit(vector)
+        var best = -1; var bestDistance = Float.MAX_VALUE
+        centroids.forEachIndexed { i, c -> val d = Diarization.distance(v, c); if (d < bestDistance) { best = i; bestDistance = d } }
+        val index = if (best >= 0 && (bestDistance <= threshold || centroids.size >= maxSpeakers)) best else {
+            sums += FloatArray(v.size); centroids += v.copyOf(); centroids.size - 1
+        }
+        val sum = sums[index]
+        for (d in v.indices) sum[d] += v[d]
+        centroids[index] = Diarization.unit(sum)
+        last = index
+        return index
+    }
 }
