@@ -6,7 +6,8 @@
 
 - Ubuntu 24.04、Temurin JDK 17、SDK Platform 35 / Build Tools 35.0.0。
 - SHA-256で検証したGradle Wrapper 8.11.1を使用。
-- `assembleDebug`、`testDebugUnitTest`、`lintDebug`。
+- `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`。
+- Android 15（API 35、google_apis x86_64）のエミュレーターを起動し、`connectedDebugAndroidTest`で端末のコーデックを使う取り込み・M4A変換・音声処理を確認します（`instrumented`ジョブ、結果は`instrumented-reports`）。エミュレーターはSDKの`emulator`/`avdmanager`で直接起動し、追加のActionは使いません。
 - arm64 APKの署名と16KBページ向けZIP配置を検証。
 - APKとSHA-256一覧を`debug-apks`、テスト・Lint結果を`verification-reports`として保存（14日間）。
 - Windowsのジョブでは、Wrapperの復元と`--version`の起動を確認します。WindowsでのAndroidアプリ全体のビルド・実機試験ではありません。
