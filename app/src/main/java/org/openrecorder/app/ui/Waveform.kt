@@ -90,8 +90,12 @@ private fun DrawScope.ruler(measurer: TextMeasurer, style: androidx.compose.ui.t
         val major = s % 2 == 0
         drawLine(tick, Offset(x, height - (if (major) 8 else 4).dp.toPx()), Offset(x, height), 1.dp.toPx())
         if (major) {
-            val text = "%02d:%02d".format(java.util.Locale.ROOT, s / 60, s % 60)
-            drawText(measurer, text, Offset(x + 3.dp.toPx(), 0f), style)
+            // Measured without a width limit: drawText(measurer, …) limits the width to the space right of the
+            // label, which is negative for labels past the right edge and throws.
+            val label = x + 3.dp.toPx()
+            if (label >= size.width) continue
+            val text = measurer.measure("%02d:%02d".format(java.util.Locale.ROOT, s / 60, s % 60), style)
+            if (label + text.size.width > 0) drawText(text, topLeft = Offset(label, 0f))
         }
     }
 }
