@@ -48,6 +48,8 @@ class DetailState(
     val recording: Recording, val levels: ByteArray?, val position: Long, val playing: Boolean,
     val speed: Float = 1f, val skipSilence: Boolean = false, val busy: Boolean = false,
     val localModel: Boolean = false, val aiTranscription: Boolean = false, val aiSummary: Boolean = false,
+    /** On-device LLM installed (generative summary). */
+    val llm: Boolean = false,
     val folders: List<String> = emptyList(),
 )
 
@@ -56,7 +58,9 @@ class DetailActions(
     val speed: (Float) -> Unit = {}, val skipSilence: (Boolean) -> Unit = {},
     val favorite: () -> Unit = {}, val rename: (String) -> Unit = {}, val move: (String) -> Unit = {}, val trash: () -> Unit = {},
     val edit: () -> Unit = {}, val enhance: (ProcessOptions) -> Unit = {}, val share: (String) -> Unit = {},
-    val transcribe: (remote: Boolean) -> Unit = {}, val summarize: (template: String, remote: Boolean) -> Unit = { _, _ -> },
+    val transcribe: (remote: Boolean) -> Unit = {},
+    /** engine: "llm" on-device model, "api" AI service, "extract" sentence extraction. */
+    val summarize: (template: String, engine: String) -> Unit = { _, _ -> },
     val addMark: (Long) -> Unit = {}, val addPhoto: (Long) -> Unit = {}, val editMark: (String, String) -> Unit = { _, _ -> },
     val deleteMark: (String) -> Unit = {}, val openPhoto: (String) -> Unit = {}, val photoFile: (String) -> File? = { null },
     val updateSegment: (Int, String, String) -> Unit = { _, _, _ -> }, val renameSpeaker: (String, String) -> Unit = { _, _ -> },
@@ -314,8 +318,14 @@ private val templates = listOf("会議", "講義", "インタビュー")
 private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript: () -> Unit) {
     val r = state.recording
     var template by rememberSaveable { mutableStateOf(templates[0]) }
-    var confirm by remember { mutableStateOf<Boolean?>(null) }
+    var confirm by remember { mutableStateOf<String?>(null) }
+    var engineMenu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val engines = buildList {
+        if (state.llm) add("llm" to "端末のAIで要約")
+        add("extract" to if (state.llm) "文を抜き出して要約" else "要約する")
+        if (state.aiSummary) add("api" to "AIサービスで要約")
+    }
     Column(Modifier.fillMaxSize().readable().verticalScroll(rememberScrollState())) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
             templates.forEachIndexed { i, t ->
@@ -326,24 +336,30 @@ private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript:
             r.segments.isEmpty() -> EmptyState(Icons.Rounded.AutoAwesome, "要約には文字起こしが必要です") { OutlinedButton(toTranscript) { Text("文字起こしへ") } }
             r.summary.isBlank() -> EmptyState(Icons.Rounded.AutoAwesome, "要約はまだありません") {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button({ actions.summarize(template, false) }, enabled = !state.busy) { Text("要約する") }
-                    if (state.aiSummary) TextButton({ actions.summarize(template, true) }, enabled = !state.busy) { Text("AIサービスで要約") }
+                    Button({ actions.summarize(template, engines[0].first) }, enabled = !state.busy) { Text(if (engines[0].first == "llm") "要約する" else engines[0].second) }
+                    engines.drop(1).forEach { (engine, label) -> TextButton({ actions.summarize(template, engine) }, enabled = !state.busy) { Text(label) } }
                 }
             }
             else -> {
                 MarkdownText(r.summary, Modifier.padding(horizontal = 24.dp))
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 16.dp)) {
-                    TextButton({ confirm = false }, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("作り直す") }
-                    if (state.aiSummary) TextButton({ confirm = true }, enabled = !state.busy) { Text("AIサービスで作り直す") }
+                    Box {
+                        TextButton({ if (engines.size == 1) confirm = engines[0].first else engineMenu = true }, enabled = !state.busy) {
+                            Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("作り直す")
+                        }
+                        DropdownMenu(engineMenu, { engineMenu = false }) {
+                            engines.forEach { (engine, label) -> DropdownMenuItem({ Text(label) }, { engineMenu = false; confirm = engine }) }
+                        }
+                    }
                     Spacer(Modifier.weight(1f))
                     IconButton({ clipboard.setText(AnnotatedString(r.summary)) }) { Icon(Icons.Rounded.ContentCopy, "コピー") }
                 }
             }
         }
     }
-    confirm?.let { remote ->
+    confirm?.let { engine ->
         AlertDialog({ confirm = null }, title = { Text("要約を作り直しますか？") }, text = { Text("今の要約とタイトルは置き換わります。") },
-            confirmButton = { TextButton({ confirm = null; actions.summarize(template, remote) }) { Text("作り直す") } },
+            confirmButton = { TextButton({ confirm = null; actions.summarize(template, engine) }) { Text("作り直す") } },
             dismissButton = { TextButton({ confirm = null }) { Text("キャンセル") } })
     }
 }
