@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.openrecorder.app.ai.DownloadState
+import org.openrecorder.app.ai.ModelCatalog
 import org.openrecorder.app.ai.ModelKind
 import org.openrecorder.app.ai.ModelSpec
 import org.openrecorder.app.ui.icons.*
@@ -26,11 +27,11 @@ data class ModelRow(val spec: ModelSpec, val installed: Boolean, val active: Boo
 
 class ModelActions(
     val back: () -> Unit = {}, val download: (ModelSpec) -> Unit = {}, val cancel: (ModelSpec) -> Unit = {},
-    val delete: (ModelSpec) -> Unit = {}, val choose: (ModelSpec) -> Unit = {},
+    val delete: (ModelSpec) -> Unit = {}, val choose: (ModelSpec) -> Unit = {}, val importLlm: () -> Unit = {},
 )
 
 @Composable
-fun ModelsScreen(rows: List<ModelRow>, actions: ModelActions) {
+fun ModelsScreen(rows: List<ModelRow>, llmSupported: Boolean, actions: ModelActions) {
     var deleting by remember { mutableStateOf<ModelSpec?>(null) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("モデル") }, navigationIcon = { IconButton(actions.back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "戻る") } })
@@ -41,6 +42,15 @@ fun ModelsScreen(rows: List<ModelRow>, actions: ModelActions) {
             section(ModelKind.Speech).forEach { ModelItem(it, actions, chooseable = true) { deleting = it.spec } }
             SectionHeader("話し声の検出・話者")
             (section(ModelKind.Vad) + section(ModelKind.Speaker)).forEach { ModelItem(it, actions, chooseable = false) { deleting = it.spec } }
+            SectionHeader("要約・翻訳")
+            if (!llmSupported) Text("この端末では端末内のAIを使用できません", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            else {
+                section(ModelKind.Llm).filter { it.spec.id != ModelCatalog.customLlm.id || it.installed }.forEach { ModelItem(it, actions, chooseable = true) { deleting = it.spec } }
+                ListItem({ Text("ファイルから追加") }, Modifier.clickable(onClick = actions.importLlm).padding(horizontal = 8.dp),
+                    supportingContent = { Text(".litertlm") }, leadingContent = { Icon(Icons.Rounded.Add, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            }
         }
     }
     deleting?.let { spec ->

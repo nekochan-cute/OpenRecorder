@@ -10,6 +10,8 @@ Open Recorder original code: Apache License 2.0. See LICENSE.
 | Kotlin / kotlinx.coroutines | 2.4.21 / 1.10.2 | Apache-2.0, https://github.com/JetBrains/kotlin and https://github.com/Kotlin/kotlinx.coroutines |
 | sherpa-onnx (static ONNX Runtime build) | 1.12.21 | Apache-2.0, https://github.com/k2-fsa/sherpa-onnx |
 | ONNX Runtime (inside sherpa-onnx) | bundled | MIT, https://github.com/microsoft/onnxruntime |
+| LiteRT-LM | 0.18.1 | Apache-2.0, https://github.com/google-ai-edge/LiteRT-LM |
+| Gson | transitive | Apache-2.0, https://github.com/google/gson |
 | OkHttp / Okio | 4.12.0 / transitive | Apache-2.0, https://github.com/square/okhttp and https://github.com/square/okio |
 | Gradle wrapper | 8.11.1 | Apache-2.0, https://github.com/gradle/gradle |
 | JUnit (test only) | 4.13.2 | EPL-1.0, https://github.com/junit-team/junit4 |
@@ -26,6 +28,8 @@ No model weights are included in the APK. These are downloaded from Hugging Face
 | SenseVoice Small | FunASR Model License | https://github.com/FunAudioLLM/SenseVoice (via csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17) |
 | Silero VAD | MIT | https://github.com/snakers4/silero-vad (via csukuangfj/vad) |
 | 3D-Speaker CAM++ | Apache-2.0 | https://github.com/modelscope/3D-Speaker (via csukuangfj/speaker-embedding-models) |
+| Gemma 4 E2B | Apache-2.0 | https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm |
+| TinySwallow 1.5B Instruct | Apache-2.0 | https://huggingface.co/litert-community/TinySwallow-1.5B-Instruct |
 
 The bundled Apache License text applies to components using that license.
 Upstream notices included in dependency AAR/JAR resources are preserved.
