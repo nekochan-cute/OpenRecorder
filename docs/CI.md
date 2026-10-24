@@ -10,7 +10,7 @@
 - `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`。
 - Android 15（API 35、google_apis x86_64）のエミュレーターを起動し、`connectedDebugAndroidTest`で端末のコーデックを使う取り込み・M4A変換・AAC/MP3録音・音声処理と、音声認識・端末内AIのネイティブライブラリの読み込みを確認します（`instrumented`ジョブ、結果は`instrumented-reports`）。エミュレーターはSDKの`emulator`/`avdmanager`で直接起動し、追加のActionは使いません。
 - arm64 APKの署名と16KBページ向けZIP配置を検証。
-- APKとSHA-256一覧を`debug-apks`、テスト・Lint結果を`verification-reports`として保存（14日間）。
+- APKはABIごとに1ファイルずつZIPにせず保存し、`OpenRecorder-<ABI>-debug.apk`のままダウンロードできます。SHA-256一覧は`SHA256SUMS.txt`と実行のSummaryに載せます。テスト・Lint結果は`verification-reports`として保存します（いずれも14日間）。
 - Windowsのジョブでは、Wrapperの復元と`--version`の起動を確認します。
 
 Actionsは公式のタグから取得したコミットSHAに固定しています。設定したトークン権限はリポジトリ内容の読み取りです。外部AIのモデル、APIキー、録音データはテストに要求しません。
@@ -21,7 +21,7 @@ Actionsは公式のタグから取得したコミットSHAに固定していま�
 
 ## APKの取得
 
-[Actions](https://github.com/nekochan-cute/OpenRecorder/actions)から成功したAndroid CIを開き、Artifactsの`debug-apks`をダウンロードします。通常の最近のAndroid端末にはarm64-v8a版を使用します。
+[Actions](https://github.com/nekochan-cute/OpenRecorder/actions)から成功したAndroid CIを開き、Artifactsから`OpenRecorder-arm64-v8a-debug.apk`をダウンロードします（APKファイルのまま届きます）。通常の最近のAndroid端末にはarm64-v8a版を使用します。
 
 APKはdebug署名です。debug鍵は実行ごとに作られるため、別の実行のAPKを上書きインストールするには、一度アンインストールが必要です。
 

@@ -56,8 +56,8 @@ provider's key page. Models are listed from the service. Details: [docs/API_CONT
 
 ## Download
 
-Each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml) publishes
-`debug-apks`. Most phones need the `arm64-v8a` APK.
+Each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml) lists the APKs
+under Artifacts; each one downloads as a plain `.apk` file. Most phones need `OpenRecorder-arm64-v8a-debug.apk`.
 
 ## Building
 
