@@ -15,6 +15,7 @@ import java.util.UUID
 class RecordingRepository(private val context: Context) {
     val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
     private val photoDir = File(context.filesDir, "photos").apply { mkdirs() }
+    private val levelsDir = File(context.filesDir, "levels").apply { mkdirs() }
     private val index = AtomicFile(File(context.filesDir, "recordings.json"))
     private val _recordings = MutableStateFlow<List<Recording>>(emptyList())
     val recordings = _recordings.asStateFlow()
@@ -35,6 +36,12 @@ class RecordingRepository(private val context: Context) {
 
     fun file(r: Recording) = File(audioDir, r.fileName).also { require(it.canonicalFile.parentFile == audioDir.canonicalFile) }
     fun get(id: String) = _recordings.value.firstOrNull { it.id == id }
+    /** Waveform levels at 20 per second, computed once per recording and cached. */
+    fun levels(r: Recording): ByteArray {
+        val cache = File(levelsDir, "${r.id}.bin")
+        if (cache.isFile && cache.lastModified() >= file(r).lastModified()) return cache.readBytes()
+        return Levels.read(file(r)).also { runCatching { cache.writeBytes(it) } }
+    }
 
     @Synchronized private fun commit(next: List<Recording>) {
         val bytes = JSONArray().apply { next.forEach { put(encode(it)) } }.toString().toByteArray()
@@ -133,6 +140,7 @@ class RecordingRepository(private val context: Context) {
         try { commit(_recordings.value.filterNot { it.id == id }) }
         catch(e: Exception) { if(tomb.exists()) tomb.renameTo(f); throw e }
         tomb.delete()
+        File(levelsDir, "${r.id}.bin").delete()
         val used = _recordings.value.flatMap { it.marks }.mapNotNull { it.photo }.toSet()
         r.marks.mapNotNull { it.photo }.filterNot { it in used }.forEach { photoFile(it).delete() }
     }

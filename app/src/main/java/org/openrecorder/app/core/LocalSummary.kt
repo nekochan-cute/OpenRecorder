@@ -32,7 +32,8 @@ object LocalSummary {
         val candidates = sentences.filter { it.text.length >= (if (ja) 8 else 25) }.ifEmpty { sentences }
         val overviewCount = (sentences.size / 8).coerceIn(3, 7)
         val overview = candidates.sortedByDescending { scores[it.index] }.take(overviewCount).sortedBy { it.index }
-        fun pick(rule: Regex, limit: Int) = sentences.filter { rule.containsMatchIn(it.text) }
+        val minLength = if (ja) 8 else 20
+        fun pick(rule: Regex, limit: Int) = sentences.filter { rule.containsMatchIn(it.text) && it.text.length >= minLength }
             .sortedByDescending { scores[it.index] }.take(limit).sortedBy { it.index }
         val h = if (ja) Headings.Ja else Headings.En
         val body = buildString {
@@ -47,7 +48,6 @@ object LocalSummary {
                 else -> section(h.keyPoints, pick(keyPoint, 6).map { it.text }, h.none)
             }
             if (keywords.isNotEmpty()) append("## ${h.keywords}\n\n${keywords.joinToString(if (ja) "、" else ", ")}\n\n")
-            append("> ${h.note}\n")
         }
         return Result(title(keywords, overview.firstOrNull()?.text ?: sentences.first().text, template, ja), body.trim() + "\n")
     }
@@ -63,11 +63,9 @@ object LocalSummary {
         return if (kind.isBlank()) topic else if (ja) "$topic（$kind）" else "$kind: $topic"
     }
 
-    private enum class Headings(val overview: String, val decisions: String, val actions: String, val keyPoints: String, val questions: String, val keywords: String, val none: String, val note: String) {
-        Ja("概要", "決定事項", "作業項目", "重要なポイント", "質問と回答", "キーワード", "該当する発言は見つかりませんでした。",
-            "端末内で原文から文を抜き出した要約です。内容は音声・全文と照合してください。"),
-        En("Overview", "Decisions", "Action items", "Key points", "Questions and answers", "Keywords", "No matching statements were found.",
-            "Extractive on-device summary: sentences are quoted from the transcript. Check them against the audio.")
+    private enum class Headings(val overview: String, val decisions: String, val actions: String, val keyPoints: String, val questions: String, val keywords: String, val none: String) {
+        Ja("概要", "決定事項", "作業項目", "重要なポイント", "質問と回答", "キーワード", "なし"),
+        En("Overview", "Decisions", "Action items", "Key points", "Questions and answers", "Keywords", "None")
     }
 
     private fun StringBuilder.section(title: String, lines: List<String>, empty: String? = null) {

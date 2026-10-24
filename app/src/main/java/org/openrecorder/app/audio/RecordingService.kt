@@ -14,12 +14,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.openrecorder.app.*
+import org.openrecorder.app.core.Levels
 import org.openrecorder.app.core.Wav
 import org.openrecorder.app.ai.LiveTranscriber
 import java.io.RandomAccessFile
 
+/** [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last. */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
-    val peaks: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
+    val levels: List<Float> = emptyList(), val error: String? = null, val liveText: String = "", val input: String = "", val noiseReduction: Boolean = false,
     val saving: Boolean = false, val silenced: Boolean = false)
 
 /** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
@@ -91,10 +93,10 @@ class RecordingService : Service() {
         fun command(action: String, code: Int) = PendingIntent.getService(this,code,Intent(this,RecordingService::class.java).setAction(action),PendingIntent.FLAG_IMMUTABLE)
         val s = mutableState.value
         return NotificationCompat.Builder(this,"capture").setSmallIcon(R.drawable.ic_recorder)
-            .setContentTitle(if(mutableState.value.saving) "録音を保存中" else if(paused) "録音を一時停止中" else "録音中")
+            .setContentTitle(if(mutableState.value.saving) "保存中" else if(paused) "一時停止中" else "録音中")
             .setContentText(org.openrecorder.app.core.timeLabel(s.durationMs)).setOngoing(true).setContentIntent(open)
             .addAction(0, if(paused) "再開" else "一時停止",command(PAUSE,1))
-            .addAction(0,"保存して停止",command(STOP,2)).build()
+            .addAction(0,"停止",command(STOP,2)).build()
     }
     private fun notifyUpdate() { getSystemService(NotificationManager::class.java).notify(10,notification()) }
 
@@ -152,8 +154,9 @@ class RecordingService : Service() {
                 audio.startRecording()
                 check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
                 val buffer = ShortArray(rate / 50 * channels)
-                var actuallyPaused = false; var lastCheckpoint = 0L
+                var actuallyPaused = false; var lastCheckpoint = 0L; var lastPublish = 0L
                 val meter = ArrayDeque<Float>()
+                val framesPerLevel = rate / Levels.PER_SECOND; var levelFrames = 0; var levelPeak = 0
                 while(!stopping && currentCoroutineContext().isActive) {
                     if(paused) {
                         if(!actuallyPaused) { audio.stop(); actuallyPaused = true }
@@ -165,14 +168,20 @@ class RecordingService : Service() {
                     if(n == 0 || paused) continue
                     check(savedBytes + n * 2 <= Wav.MAX_BYTES) { "WAVの上限に達しました。録音を分割してください" }
                     val bytes = ByteArray(n * 2)
-                    var peak = 0
-                    for(i in 0 until n) { val v = buffer[i].toInt(); bytes[i*2]=v.toByte(); bytes[i*2+1]=(v shr 8).toByte(); peak=maxOf(peak,kotlin.math.abs(v)) }
+                    for(i in 0 until n) {
+                        val v = buffer[i].toInt(); bytes[i*2]=v.toByte(); bytes[i*2+1]=(v shr 8).toByte()
+                        levelPeak = maxOf(levelPeak,kotlin.math.abs(v))
+                        if(i % channels == channels - 1 && ++levelFrames == framesPerLevel) {
+                            meter.addLast(Levels.fromLinear(levelPeak / 32768f)); if(meter.size > 600) meter.removeFirst()
+                            levelFrames = 0; levelPeak = 0
+                        }
+                    }
                     output.write(bytes); savedBytes += bytes.size
                     live?.offer(buffer.copyOf(n))
                     val duration = savedBytes / (channels * 2) * 1000 / rate
-                    if(duration - lastCheckpoint >= 100) {
-                        meter.addLast(peak / 32768f); if(meter.size > 160) meter.removeFirst()
-                        mutableState.update { it.copy(durationMs = duration, peaks = meter.toList(),
+                    if(duration - lastPublish >= 50) {
+                        lastPublish = duration
+                        mutableState.update { it.copy(durationMs = duration, levels = meter.toList(),
                             input = audio.routedDevice?.productName?.toString() ?: "マイク") }
                     }
                     if(duration - lastCheckpoint >= 1000) {
