@@ -194,7 +194,8 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
             enhance = { o: ProcessOptions -> vm.stopPlayback(); vm.process(r.id, o) { replace("detail/$it") } },
             share = { kind -> when (kind) {
                 "m4a" -> vm.exportAac(r) { share(it, "audio/mp4") }
-                "wav" -> share(vm.repo.file(r), "audio/wav")
+                "mp3" -> vm.exportMp3(r) { share(it, "audio/mpeg") }
+                "wav" -> vm.exportWav(r) { share(it, "audio/wav") }
                 else -> share(vm.exportText(r, kind), when (kind) { "srt", "srt-translation" -> "application/x-subrip"; "vtt", "vtt-translation" -> "text/vtt"; "summary" -> "text/markdown"; else -> "text/plain" })
             } },
             transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, engine -> when (engine) { "api" -> vm.summarize(r.id, t); "llm" -> vm.summarizeWithLlm(r.id, t); else -> vm.summarizeLocal(r.id, t) } },
@@ -212,7 +213,7 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
 @Composable
 private fun Licenses(back: () -> Unit) {
     val context = LocalContext.current
-    val text = remember { listOf("licenses/THIRD_PARTY_NOTICES.md", "licenses/Apache-2.0.txt").joinToString("\n\n") { f -> context.assets.open(f).bufferedReader().use { it.readText() } } }
+    val text = remember { listOf("licenses/THIRD_PARTY_NOTICES.md", "licenses/Apache-2.0.txt", "licenses/LGPL-2.1.txt").joinToString("\n\n") { f -> context.assets.open(f).bufferedReader().use { it.readText() } } }
     Scaffold(topBar = { TopAppBar(title = { Text("ライセンス") }, navigationIcon = { IconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "戻る") } }) }) { padding ->
         Text(text, Modifier.padding(padding).readable().verticalScroll(rememberScrollState()).padding(24.dp), style = MaterialTheme.typography.bodySmall)
     }
