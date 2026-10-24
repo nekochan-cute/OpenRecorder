@@ -6,8 +6,9 @@
 
 - Ubuntu 24.04、Temurin JDK 17、SDK Platform 35 / Build Tools 35.0.0。
 - SHA-256で検証したGradle Wrapper 8.11.1を使用。
+- sherpa-onnxのAAR（Maven Centralに無いため作者がHugging Faceで配布しているもの）は、ビルド時にダウンロードし、`app/build.gradle.kts`に固定したSHA-256と照合してから使います。
 - `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`。
-- Android 15（API 35、google_apis x86_64）のエミュレーターを起動し、`connectedDebugAndroidTest`で端末のコーデックを使う取り込み・M4A変換・音声処理を確認します（`instrumented`ジョブ、結果は`instrumented-reports`）。エミュレーターはSDKの`emulator`/`avdmanager`で直接起動し、追加のActionは使いません。
+- Android 15（API 35、google_apis x86_64）のエミュレーターを起動し、`connectedDebugAndroidTest`で端末のコーデックを使う取り込み・M4A変換・AAC/MP3録音・音声処理と、音声認識・端末内AIのネイティブライブラリの読み込みを確認します（`instrumented`ジョブ、結果は`instrumented-reports`）。エミュレーターはSDKの`emulator`/`avdmanager`で直接起動し、追加のActionは使いません。
 - arm64 APKの署名と16KBページ向けZIP配置を検証。
 - APKとSHA-256一覧を`debug-apks`、テスト・Lint結果を`verification-reports`として保存（14日間）。
 - Windowsのジョブでは、Wrapperの復元と`--version`の起動を確認します。
