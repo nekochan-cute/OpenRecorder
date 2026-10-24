@@ -10,15 +10,19 @@
 - Android 15（API 35、google_apis x86_64）のエミュレーターを起動し、`connectedDebugAndroidTest`で端末のコーデックを使う取り込み・M4A変換・音声処理を確認します（`instrumented`ジョブ、結果は`instrumented-reports`）。エミュレーターはSDKの`emulator`/`avdmanager`で直接起動し、追加のActionは使いません。
 - arm64 APKの署名と16KBページ向けZIP配置を検証。
 - APKとSHA-256一覧を`debug-apks`、テスト・Lint結果を`verification-reports`として保存（14日間）。
-- Windowsのジョブでは、Wrapperの復元と`--version`の起動を確認します。WindowsでのAndroidアプリ全体のビルド・実機試験ではありません。
+- Windowsのジョブでは、Wrapperの復元と`--version`の起動を確認します。
 
 Actionsは公式のタグから取得したコミットSHAに固定しています。設定したトークン権限はリポジトリ内容の読み取りです。外部AIのモデル、APIキー、録音データはテストに要求しません。
+
+## 画面のプレビュー
+
+`bash gradlew :app:testDebugUnitTest --tests '*ScreenshotTest*' -Pscreenshots` で、主要な画面をサンプルデータで描画し、ライト/ダークのPNGを`build/screenshots/`に保存します（Robolectric）。指定しない通常の実行ではスキップします。
 
 ## APKの取得
 
 [Actions](https://github.com/nekochan-cute/OpenRecorder/actions)から成功したAndroid CIを開き、Artifactsの`debug-apks`をダウンロードします。通常の最近のAndroid端末にはarm64-v8a版を使用します。
 
-これは開発用署名のAPKです。各CI実行で生成されるdebug鍵は永続化していないため、別の実行のAPKに同じ署名が使われる保証はありません。継続配布には固定の署名鍵を使うリリース構成が残作業です。
+APKはdebug署名です。debug鍵は実行ごとに作られるため、別の実行のAPKを上書きインストールするには、一度アンインストールが必要です。
 
 ## Wrapperの格納形式
 
