@@ -2,8 +2,8 @@
 
 [![Android CI](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml/badge.svg)](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml)
 
-A voice recorder for Android that transcribes, separates speakers and summarizes on the device.
-AI services are optional: connect OpenRouter, Google AI Studio, OpenAI, Groq or any OpenAI-compatible API when you want them.
+Android voice recorder with on-device transcription, speaker labels, summaries and translation.
+AI services (OpenRouter, Google AI Studio, OpenAI, Groq, OpenAI-compatible APIs) are optional.
 
 <p>
 <img src="docs/screenshots/library-light.png" width="180" alt="Recordings">
@@ -16,57 +16,56 @@ AI services are optional: connect OpenRouter, Google AI Studio, OpenAI, Groq or 
 
 | Area | |
 | --- | --- |
-| Recording | One tap to record, pause and resume, keeps recording with the screen off, 16 or 48 kHz, mono or stereo, built-in / wired / USB / Bluetooth microphones, crash-safe WAV with recovery |
-| Playback | Scrolling waveform with marks, drag to scrub, ±10 s, 0.5×–3× speed, silence skipping |
-| Marks | Flag a moment while recording or playing, add a note or a photo, tap to jump |
-| Editing | Keep or remove a selected range; the original is kept and the result is saved as a new recording |
-| Library | Folders, favourites, search across titles, transcripts, marks and summaries, trash, import of any format the phone can decode |
-| Transcription | Live captions while recording and transcription of saved audio with [Vosk](https://alphacephei.com/vosk/) (offline) or an AI service; edit text, tap a sentence to play from there |
-| Speakers | Offline speaker separation with the Vosk speaker model; rename speakers, fix a sentence's speaker |
-| Summary | Offline summary with an automatic title and templates for meetings (decisions, action items), lectures (key points) and interviews (questions and answers), or a summary from an AI service |
+| Recording | Pause and resume, screen-off recording, AAC (M4A), MP3 or WAV, 16 or 48 kHz, mono or stereo, built-in / wired / USB / Bluetooth mics, directional capture where supported, crash recovery |
+| Playback | Waveform with marks, drag to scrub, ±10 s, 0.5×–3× speed, silence skipping |
+| Marks | Notes and photos at a moment, tap to jump |
+| Editing | Keep or remove a range, or join recordings; originals are kept |
+| Library | Folders, favourites, search, trash, import |
+| Transcription | Live captions and saved audio with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech, SenseVoice) or an AI service; editable, tap to play |
+| Speakers | Speaker labels on the device, live and refined after recording; rename and fix |
+| Summary | On-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B, TinySwallow 1.5B), extractive summary or an AI service; meeting, lecture and interview templates |
+| Translation | Seven languages with the on-device LLM or an AI service; timestamps and speakers are kept |
 | Audio clean-up | Noise reduction, voice enhancement and loudness levelling, saved as a new recording |
-| Sharing | Audio as M4A or WAV, transcript, SRT or WebVTT captions, summary as Markdown, list of marks |
+| Sharing | M4A, MP3 or WAV, transcript and translation, SRT or WebVTT, Markdown summary, marks |
 
 ## Privacy
 
-Recordings, photos and transcripts stay in app storage and are excluded from cloud backup. Nothing is sent
-anywhere unless you choose an AI service; API keys are encrypted with the Android Keystore. No ads or analytics.
+Data stays in app storage and out of cloud backup. Nothing is sent unless you choose an AI service; API keys are
+encrypted with the Android Keystore.
 
-## Speech models
+## On-device models
 
-Download a ZIP from the [Vosk model list](https://alphacephei.com/vosk/models) and add it under
-**Settings → Add model**. The app tells speech and speaker models apart by their contents.
+Downloaded under **Settings → Models**; interrupted downloads resume.
 
-- Speech: e.g. `vosk-model-small-ja-0.22` (Japanese) or `vosk-model-small-en-us-0.15` (English)
-- Speakers: `vosk-model-spk-0.4`
+| Purpose | Model | Size |
+| --- | --- | --- |
+| Transcription (ja) | ReazonSpeech v2, int8 | 160 MB |
+| Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8 | 239 MB |
+| Speech detection | Silero VAD | 2 MB |
+| Speakers | 3D-Speaker CAM++ | 28 MB |
+| Summary and translation | Gemma 4 E2B, TinySwallow 1.5B or your own `.litertlm` | 2.6 GB / 1.6 GB |
+
+The LLM needs arm64-v8a or x86_64. Model licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## AI services
 
-**Settings → AI services** picks a service for summaries and one for transcription. OpenRouter supports
-signing in through the browser (OAuth PKCE); other services take an API key, with a button that opens the
-provider's key page. Models are listed from the service. Details: [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
+**Settings → AI services** picks a service for summaries and one for transcription. OpenRouter signs in through
+the browser; the others take an API key.
 
 ## Download
 
-Each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml) publishes
-`debug-apks`. Most phones need the `arm64-v8a` APK.
+APKs are in the `debug-apks` artifact of each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml). Most phones need `arm64-v8a`.
 
 ## Building
 
-JDK 17 and the Android SDK (platform 35, build tools 35.0.0).
+JDK 17, Android SDK platform 35 and build tools 35.0.0. The first build downloads the sherpa-onnx AAR from
+Hugging Face and checks its SHA-256 (`app/build.gradle.kts`). Android 10 or later.
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
-./gradlew :app:connectedDebugAndroidTest                                   # device or emulator
+./gradlew :app:connectedDebugAndroidTest
 ./gradlew :app:testDebugUnitTest --tests '*ScreenshotTest*' -Pscreenshots  # render screens to build/screenshots
 ```
-
-Android 10 (API 29) or later.
-
-## Documentation
-
-Japanese: [specification](docs/SPECIFICATION.md), [API contract](docs/API_CONTRACT.md),
-[testing and device checklist](docs/VALIDATION.md), [CI](docs/CI.md).
 
 ## License
 

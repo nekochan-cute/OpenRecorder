@@ -7,6 +7,7 @@ Open Recorder original code: Apache License 2.0. See LICENSE.
 | Component | Version | License / source |
 | --- | --- | --- |
 | AndroidX / Jetpack Compose / Media3 | See app/build.gradle.kts and BOM | Apache-2.0, https://android.googlesource.com/platform/frameworks/support/ and https://github.com/androidx/media |
+| Material icons (subset, in `ui/icons`) | 1.7.8 | Apache-2.0, https://android.googlesource.com/platform/frameworks/support/ |
 | Kotlin / kotlinx.coroutines | 2.4.21 / 1.10.2 | Apache-2.0, https://github.com/JetBrains/kotlin and https://github.com/Kotlin/kotlinx.coroutines |
 | sherpa-onnx (static ONNX Runtime build) | 1.12.21 | Apache-2.0, https://github.com/k2-fsa/sherpa-onnx |
 | ONNX Runtime (inside sherpa-onnx) | bundled | MIT, https://github.com/microsoft/onnxruntime |
