@@ -119,7 +119,7 @@ object Speech {
 }
 
 /**
- * Captions while recording. Audio is queued so recognition never blocks capture; if the
+ * Captions and speakers while recording. Audio is queued so recognition never blocks capture; if the
  * phone cannot keep up, captions stop and the audio is still saved.
  */
 class LiveTranscriber(context: Context, private val rate: Int, private val channels: Int, scope: CoroutineScope,
@@ -134,14 +134,19 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
     init {
         scope.launch(Dispatchers.Default) {
             try {
-                SpeechEngine.open(context, speakers = false).use { engine ->
+                SpeechEngine.open(context, speakers = true).use { engine ->
                     val splitter = SpeechEngine.Splitter(engine.newVad())
                     val resampler = Resampler(rate, SpeechEngine.RATE)
+                    val online = OnlineDiarizer()
+                    val items = mutableListOf<Speech.Diarized>()
                     val shown = mutableListOf<Segment>()
                     fun take(start: Int, samples: FloatArray) {
                         val text = engine.recognize(samples)
                         if (text.isBlank()) return
-                        shown += Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
+                        val vector = engine.embed(samples)
+                        val segment = Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
+                        items += Speech.Diarized(segment, vector, samples.size / 160)
+                        shown += segment.copy(speaker = Diarization.label(online.assign(vector, samples.size / 160)))
                         onUpdate(shown.toList(), false)
                     }
                     var wasSpeaking = false
@@ -151,7 +156,8 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                         if (splitter.speaking != wasSpeaking) { wasSpeaking = splitter.speaking; onUpdate(shown.toList(), wasSpeaking) }
                     }
                     splitter.finish(::take)
-                    result.complete(if (overloaded) emptyList() else shown.toList())
+                    // Offline clustering over the whole recording is more accurate than the live labels.
+                    result.complete(if (overloaded) emptyList() else Speech.diarize(items))
                 }
             } catch (e: Throwable) {
                 result.completeExceptionally(e)

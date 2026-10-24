@@ -22,7 +22,7 @@ import java.io.RandomAccessFile
 
 /**
  * [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last.
- * [live]: captions so far; [speaking] while the current utterance is still open.
+ * [live]: captions so far with speakers; [speaking] while the current utterance is still open.
  */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
     val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val speaking: Boolean = false,
