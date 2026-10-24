@@ -44,14 +44,49 @@ jobs:
           apk=app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
           "$tools/apksigner" verify --verbose "$apk"
           "$tools/zipalign" -c -P 16 4 "$apk"
-          sha256sum app/build/outputs/apk/debug/*.apk > app/build/outputs/apk/debug/SHA256SUMS.txt
-      - name: Save APKs
+      # Each APK is uploaded on its own without a ZIP, so it downloads as an .apk file.
+      - name: Name APKs and record checksums
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            cp "app/build/outputs/apk/debug/app-$abi-debug.apk" "dist/OpenRecorder-$abi-debug.apk"
+          done
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          { echo '### APK SHA-256'; echo '```'; cat dist/SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save arm64-v8a APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: debug-apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/debug/SHA256SUMS.txt
+          path: dist/OpenRecorder-arm64-v8a-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save armeabi-v7a APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/OpenRecorder-armeabi-v7a-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save x86_64 APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/OpenRecorder-x86_64-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save x86 APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/OpenRecorder-x86-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/SHA256SUMS.txt
+          archive: false
           if-no-files-found: error
           retention-days: 14
       - name: Save verification reports

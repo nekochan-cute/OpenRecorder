@@ -54,7 +54,8 @@ the browser; the others take an API key.
 
 ## Download
 
-APKs are in the `debug-apks` artifact of each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml). Most phones need `arm64-v8a`.
+Each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/workflows/android.yml) has the APKs as plain `.apk` downloads. Most phones need
+`OpenRecorder-arm64-v8a-debug.apk`.
 
 ## Building
 
