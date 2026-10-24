@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import org.openrecorder.app.audio.AudioCodec
 import org.openrecorder.app.core.*
 import java.io.File
 import java.util.UUID
@@ -14,6 +15,7 @@ import java.util.UUID
 class RecordingRepository(private val context: Context) {
     val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
     private val photoDir = File(context.filesDir, "photos").apply { mkdirs() }
+    private val levelsDir = File(context.filesDir, "levels").apply { mkdirs() }
     private val index = AtomicFile(File(context.filesDir, "recordings.json"))
     private val _recordings = MutableStateFlow<List<Recording>>(emptyList())
     val recordings = _recordings.asStateFlow()
@@ -34,6 +36,12 @@ class RecordingRepository(private val context: Context) {
 
     fun file(r: Recording) = File(audioDir, r.fileName).also { require(it.canonicalFile.parentFile == audioDir.canonicalFile) }
     fun get(id: String) = _recordings.value.firstOrNull { it.id == id }
+    /** Waveform levels at 20 per second, computed once per recording and cached. */
+    fun levels(r: Recording): ByteArray {
+        val cache = File(levelsDir, "${r.id}.bin")
+        if (cache.isFile && cache.lastModified() >= file(r).lastModified()) return cache.readBytes()
+        return Levels.read(file(r)).also { runCatching { cache.writeBytes(it) } }
+    }
 
     @Synchronized private fun commit(next: List<Recording>) {
         val bytes = JSONArray().apply { next.forEach { put(encode(it)) } }.toString().toByteArray()
@@ -84,21 +92,44 @@ class RecordingRepository(private val context: Context) {
         try { add(r) } catch (e: Exception) { out.delete(); throw e }
         return r
     }
-    fun importWav(uri: Uri, title: String): Recording {
+    /**
+     * Imports any audio the device can decode. 16-bit PCM WAV is kept byte for byte; other
+     * formats (M4A, MP3, OGG, FLAC, AMR…) are decoded once to WAV so editing stays sample exact.
+     */
+    fun importAudio(uri: Uri, title: String, progress: (Float) -> Unit = {}): Recording {
         val id = UUID.randomUUID().toString(); val dest = File(audioDir, "$id.wav")
+        val staged = File(context.cacheDir, "import-$id").also { it.parentFile?.mkdirs() }
         try {
             context.contentResolver.openInputStream(uri)!!.use { input ->
-                dest.outputStream().use { output ->
+                staged.outputStream().use { output ->
                     val b = ByteArray(64 * 1024); var size = 0L
                     while (true) { val n = input.read(b); if (n < 0) break; size += n; require(size < Wav.MAX_BYTES) { "ファイルが大きすぎます" }; output.write(b,0,n) }
                 }
             }
-            val info = Wav.inspect(dest)
-            require(info.bytes > 0)
+            val wav = runCatching { Wav.inspect(staged) }.getOrNull()?.takeIf { it.bytes > 0 }
+            val info = if (wav != null) {
+                if (!staged.renameTo(dest)) { staged.copyTo(dest, overwrite = true) }
+                Wav.inspect(dest)
+            } else AudioCodec.decodeToWav(staged, dest, progress)
+            require(info.bytes > 0) { "音声が空です" }
             val r = Recording(id = id, title = title.ifBlank { "取り込んだ録音" }, fileName = dest.name,
                 durationMs = info.durationMs, sampleRate = info.sampleRate, channels = info.channels, peaks = Wav.peaks(dest))
             add(r); return r
         } catch (e: Exception) { dest.delete(); throw e }
+        finally { staged.delete() }
+    }
+    /** Noise reduction / voice enhancement / loudness on a copy. The timeline is unchanged, so marks and text carry over. */
+    fun process(id: String, options: ProcessOptions, progress: (Float) -> Unit = {}): Recording {
+        val old = get(id) ?: error("録音がありません")
+        require(!old.unfinished && old.deletedAt == null)
+        val newId = UUID.randomUUID().toString()
+        val out = File(audioDir, "$newId.wav")
+        require(audioDir.usableSpace > file(old).length() + 32L * 1024 * 1024) { "空き容量が足りません" }
+        val info = AudioProcessor.process(file(old), out, options, progress)
+        val r = old.copy(id = newId, title = old.title + "（音声処理）", fileName = out.name, createdAt = System.currentTimeMillis(),
+            durationMs = info.durationMs, sourceId = old.id, favorite = false, peaks = Wav.peaks(out))
+        try { add(r) } catch (e: Exception) { out.delete(); throw e }
+        return r
     }
     @Synchronized fun permanentlyDelete(id: String) {
         val r = get(id) ?: return
@@ -109,6 +140,7 @@ class RecordingRepository(private val context: Context) {
         try { commit(_recordings.value.filterNot { it.id == id }) }
         catch(e: Exception) { if(tomb.exists()) tomb.renameTo(f); throw e }
         tomb.delete()
+        File(levelsDir, "${r.id}.bin").delete()
         val used = _recordings.value.flatMap { it.marks }.mapNotNull { it.photo }.toSet()
         r.marks.mapNotNull { it.photo }.filterNot { it in used }.forEach { photoFile(it).delete() }
     }

@@ -15,9 +15,8 @@ speech model requires checking that model's license independently.
 | OkHttp / Okio | 4.12.0 / transitive | Apache-2.0, https://github.com/square/okhttp and https://github.com/square/okio |
 | Gradle wrapper | 8.11.1 | Apache-2.0, https://github.com/gradle/gradle |
 | JUnit (test only) | 4.13.2 | EPL-1.0, https://github.com/junit-team/junit4 |
+| Robolectric (test only) | 4.14.1 | MIT, https://github.com/robolectric/robolectric |
 | Hamcrest (test only) | transitive | BSD-3-Clause, https://github.com/hamcrest/JavaHamcrest |
 
 The bundled Apache License text applies to components using that license.
 Upstream notices included in dependency AAR/JAR resources must be preserved.
-This list is not an audit of every native transitive component. A full license
-inventory and release signing are outstanding before a production release.

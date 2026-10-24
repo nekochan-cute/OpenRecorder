@@ -1,6 +1,16 @@
 # 外部AI APIの契約
 
-API機能は利用者が指定するHTTPSエンドポイントを呼び出します。OPPOの内部APIは利用しません。以下はOpen Recorderが送受信する独自の対応範囲です。特定サービスの全APIとの互換性を保証する記述ではありません。
+要約と文字起こしは、OpenAI互換のHTTPSエンドポイントを呼び出します。各サービスのベースURLは次のとおりです。
+
+| サービス | ベースURL |
+| --- | --- |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| OpenAI | `https://api.openai.com/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
+| その他 | 設定したURL |
+
+要約は `<ベースURL>/chat/completions`、文字起こしは `<ベースURL>/audio/transcriptions`、モデル一覧は `<ベースURL>/models` です。
 
 ## 音声から文章・話者ラベル
 
@@ -58,4 +68,13 @@ API機能は利用者が指定するHTTPSエンドポイントを呼び出しま
 - 接続20秒、読み取り5分、1要求全体10分のタイムアウト。
 - 応答の上限8MiB。JSON以外、HTTPエラー、不正なタイムスタンプはエラー表示。
 - APIキー、音声、文字起こしをログへ出力しません。
-- リクエストの自動再送や別サービスへのフォールバックは実装していません。
+- 失敗した要求は再送しません。
+
+## OpenRouterのログイン
+
+[OAuth PKCE](https://openrouter.ai/docs/use-cases/oauth-pkce)を使います。
+
+1. `code_verifier`（48バイトの乱数）と、そのSHA-256の`code_challenge`、`state`を作ります。
+2. 端末のループバック（`127.0.0.1`）の空きポートで待ち受け、`https://openrouter.ai/auth?callback_url=http://localhost:<port>/callback&code_challenge=…&code_challenge_method=S256&state=…` をブラウザで開きます。
+3. コールバックの`state`を照合し、`code`を受け取ります。待ち受けは5分で終了します。
+4. `POST https://openrouter.ai/api/v1/auth/keys` に `code`・`code_verifier`・`code_challenge_method` を送り、応答の`key`をAPIキーとして保存します。
