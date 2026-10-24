@@ -69,6 +69,17 @@ class RemoteAi {
             Segment(start.coerceAtMost(durationMs),end.coerceAtMost(durationMs),s.getString("text"),s.optString("speaker"))
         }.filter { it.text.isNotBlank() }.sortedBy { it.startMs }
     }
+    /** One chat completion with the configured summary service, for translation and long summaries. */
+    fun generator(config: AiConfig) = TextGenerator { system, user -> chat(config, system, user) }
+
+    suspend fun chat(config: AiConfig, system: String, user: String): String = withContext(Dispatchers.IO) {
+        require(config.summaryReady) { "AI連携で要約のサービスとモデルを設定してください" }
+        val body = JSONObject().apply {
+            put("model",config.summaryModel); put("stream",false)
+            put("messages",JSONArray().put(JSONObject().put("role","system").put("content",system)).put(JSONObject().put("role","user").put("content",user)))
+        }.toString().toRequestBody("application/json".toMediaType())
+        execute(request(config.summaryUrl,config.summaryKey,body)).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim()
+    }
     suspend fun summarize(segments: List<Segment>, config: AiConfig, template: String): Pair<String,String> = withContext(Dispatchers.IO) {
         require(config.summaryReady) { "AI連携で要約のサービスとモデルを設定してください" }
         require(segments.isNotEmpty()) { "先に文字起こしを実行してください" }

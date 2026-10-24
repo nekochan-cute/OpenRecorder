@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package org.openrecorder.app.ui
 
 import android.graphics.BitmapFactory
@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.openrecorder.app.core.LlmTasks
 import org.openrecorder.app.core.Mark
 import org.openrecorder.app.core.ProcessOptions
 import org.openrecorder.app.core.Recording
@@ -48,7 +49,7 @@ class DetailState(
     val recording: Recording, val levels: ByteArray?, val position: Long, val playing: Boolean,
     val speed: Float = 1f, val skipSilence: Boolean = false, val busy: Boolean = false,
     val localModel: Boolean = false, val aiTranscription: Boolean = false, val aiSummary: Boolean = false,
-    /** On-device LLM installed (generative summary). */
+    /** On-device LLM installed (generative summary, translation). */
     val llm: Boolean = false,
     val folders: List<String> = emptyList(),
 )
@@ -61,6 +62,7 @@ class DetailActions(
     val transcribe: (remote: Boolean) -> Unit = {},
     /** engine: "llm" on-device model, "api" AI service, "extract" sentence extraction. */
     val summarize: (template: String, engine: String) -> Unit = { _, _ -> },
+    val translate: (language: String, remote: Boolean) -> Unit = { _, _ -> }, val clearTranslation: () -> Unit = {},
     val addMark: (Long) -> Unit = {}, val addPhoto: (Long) -> Unit = {}, val editMark: (String, String) -> Unit = { _, _ -> },
     val deleteMark: (String) -> Unit = {}, val openPhoto: (String) -> Unit = {}, val photoFile: (String) -> File? = { null },
     val updateSegment: (Int, String, String) -> Unit = { _, _, _ -> }, val renameSpeaker: (String, String) -> Unit = { _, _ -> },
@@ -94,6 +96,10 @@ fun DetailScreen(state: DetailState, actions: DetailActions, initialTab: Int = 0
                             DropdownMenuItem({ Text("音声を整える") }, { menu = false; sheet = "enhance" }, enabled = !state.busy, leadingIcon = { Icon(Icons.Rounded.GraphicEq, null) })
                             DropdownMenuItem({ Text("名前を変更") }, { menu = false; dialog = "rename" }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
                             DropdownMenuItem({ Text("フォルダーに移動") }, { menu = false; dialog = "folder" }, leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) })
+                            if (r.segments.isNotEmpty() && (state.llm || state.aiSummary)) DropdownMenuItem({ Text("翻訳") }, { menu = false; sheet = "translate" },
+                                enabled = !state.busy, leadingIcon = { Icon(Icons.Rounded.Translate, null) })
+                            if (r.translationLanguage.isNotEmpty()) DropdownMenuItem({ Text("翻訳を削除") }, { menu = false; actions.clearTranslation() },
+                                leadingIcon = { Icon(Icons.Rounded.Close, null) })
                             if (r.segments.isNotEmpty()) DropdownMenuItem({ Text("文字起こしをやり直す") }, { menu = false; dialog = "retranscribe" },
                                 enabled = !state.busy, leadingIcon = { Icon(Icons.Rounded.Refresh, null) })
                             HorizontalDivider()
@@ -118,6 +124,7 @@ fun DetailScreen(state: DetailState, actions: DetailActions, initialTab: Int = 0
     when (sheet) {
         "share" -> ShareSheet(r, { sheet = "" }) { actions.share(it); sheet = "" }
         "enhance" -> EnhanceSheet({ sheet = "" }) { actions.enhance(it); sheet = "" }
+        "translate" -> TranslateSheet(r.translationLanguage, state.llm, state.aiSummary, { sheet = "" }) { language, remote -> actions.translate(language, remote); sheet = "" }
     }
     when (dialog) {
         "rename" -> TextDialog("名前を変更", r.title, { dialog = "" }) { actions.rename(it); dialog = "" }
@@ -293,7 +300,11 @@ private fun SegmentRow(s: Segment, showSpeaker: Boolean, speakerIndex: Int, dark
         }
         Row {
             Text(clock(s.startMs), style = MaterialTheme.typography.labelMedium, color = colors.outline, modifier = Modifier.width(52.dp).padding(top = 4.dp))
-            Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (current) colors.onSurface else colors.onSurface.copy(alpha = 0.92f))
+            Column {
+                Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (current) colors.onSurface else colors.onSurface.copy(alpha = 0.92f))
+                if (s.translation.isNotBlank()) Text(s.translation, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp))
+            }
         }
     }
 }
@@ -375,6 +386,12 @@ private fun ShareSheet(r: Recording, dismiss: () -> Unit, share: (String) -> Uni
                 ShareRow(Icons.AutoMirrored.Rounded.Notes, "文字起こし", "テキスト") { share("transcript") }
                 ShareRow(Icons.Rounded.Subtitles, "字幕", "SRT") { share("srt") }
                 ShareRow(Icons.Rounded.Subtitles, "字幕", "WebVTT") { share("vtt") }
+                if (r.translationLanguage.isNotEmpty()) {
+                    val language = LlmTasks.languages[r.translationLanguage] ?: r.translationLanguage
+                    ShareRow(Icons.Rounded.Translate, "翻訳（$language）", "テキスト") { share("translation") }
+                    ShareRow(Icons.Rounded.Translate, "翻訳の字幕（$language）", "SRT") { share("srt-translation") }
+                    ShareRow(Icons.Rounded.Translate, "翻訳の字幕（$language）", "WebVTT") { share("vtt-translation") }
+                }
             }
             if (r.summary.isNotBlank()) ShareRow(Icons.Rounded.AutoAwesome, "要約", "Markdown") { share("summary") }
             if (r.marks.isNotEmpty()) ShareRow(Icons.Rounded.Flag, "マーク一覧", "テキスト") { share("marks") }
@@ -417,4 +434,23 @@ fun SwitchRow(title: String, value: Boolean, supporting: String? = null, enabled
     ListItem({ Text(title) }, Modifier.clickable(enabled = enabled) { onChange(!value) }, supportingContent = supporting?.let { { Text(it) } },
         leadingContent = icon?.let { { Icon(it, null) } },
         trailingContent = { Switch(value, onChange, enabled = enabled) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+}
+
+@Composable
+private fun TranslateSheet(current: String, llm: Boolean, remote: Boolean, dismiss: () -> Unit, translate: (String, Boolean) -> Unit) {
+    var language by rememberSaveable { mutableStateOf(current.ifBlank { "en" }) }
+    var useRemote by rememberSaveable { mutableStateOf(!llm) }
+    ModalBottomSheet(dismiss) {
+        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
+            Text("翻訳", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LlmTasks.languages.forEach { (code, name) -> FilterChip(language == code, { language = code }, { Text(name) }) }
+            }
+            if (llm && remote) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                SegmentedButton(!useRemote, { useRemote = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("端末のAI") }
+                SegmentedButton(useRemote, { useRemote = true }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("AIサービス") }
+            }
+            Button({ translate(language, useRemote && remote || !llm) }, Modifier.fillMaxWidth().padding(top = 20.dp)) { Text("翻訳する") }
+        }
+    }
 }

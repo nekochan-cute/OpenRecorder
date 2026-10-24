@@ -103,5 +103,11 @@ class ScreenshotTest {
             ModelRow(spec, installed, spec == ModelCatalog.reazon || spec == ModelCatalog.swallow, if (spec == ModelCatalog.gemma) org.openrecorder.app.ai.DownloadState(0.42f) else null)
         }, true, ModelActions())
     }
+    @Test fun translated() = snap("13-detail-translated") {
+        val english = listOf("Today we'll talk about the launch schedule and budget for the new product", "We are aiming for the end of next month",
+            "The budget looks a little higher than last month's estimate", "Then the release date is decided as November 30")
+        val r = meeting.copy(segments = segments.mapIndexed { i, s -> s.copy(translation = english.getOrElse(i) { "" }) }, translationLanguage = "en")
+        DetailScreen(DetailState(r, levels, 9_000, false, llm = true), DetailActions(), initialTab = 1)
+    }
     @Test fun trash() = snap("11-trash") { TrashScreen(library.take(2).map { it.copy(deletedAt = now) }, {}, {}, {}, {}) }
 }
