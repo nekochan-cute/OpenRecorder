@@ -1,0 +1,169 @@
+package org.openrecorder.app.ai
+
+import android.content.Context
+import com.k2fsa.sherpa.onnx.FeatureConfig
+import com.k2fsa.sherpa.onnx.OfflineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineRecognizer
+import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
+import com.k2fsa.sherpa.onnx.SileroVadModelConfig
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
+import com.k2fsa.sherpa.onnx.Vad
+import com.k2fsa.sherpa.onnx.VadModelConfig
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import org.openrecorder.app.core.*
+import java.io.File
+
+/**
+ * On-device speech with sherpa-onnx: Silero VAD cuts speech into utterances, an offline recognizer
+ * (ReazonSpeech or SenseVoice) transcribes each one, and a speaker-embedding model labels who spoke.
+ */
+class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : AutoCloseable {
+    private val vadModel = store.file(ModelCatalog.vad, "silero_vad.onnx").path
+    private val recognizer: OfflineRecognizer
+    private val extractor: SpeakerEmbeddingExtractor?
+
+    init {
+        val model = when (speech.id) {
+            ModelCatalog.reazon.id -> OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(store.file(speech, "encoder.onnx").path, store.file(speech, "decoder.onnx").path, store.file(speech, "joiner.onnx").path),
+                tokens = store.file(speech, "tokens.txt").path, numThreads = 2, modelType = "transducer")
+            else -> OfflineModelConfig(
+                senseVoice = OfflineSenseVoiceModelConfig(model = store.file(speech, "model.onnx").path, language = "auto", useInverseTextNormalization = true),
+                tokens = store.file(speech, "tokens.txt").path, numThreads = 2)
+        }
+        recognizer = OfflineRecognizer(null, OfflineRecognizerConfig(featConfig = FeatureConfig(sampleRate = RATE, featureDim = 80), modelConfig = model))
+        extractor = if (speakers && store.installed(ModelCatalog.speaker))
+            SpeakerEmbeddingExtractor(null, SpeakerEmbeddingExtractorConfig(model = store.file(ModelCatalog.speaker, "speaker.onnx").path, numThreads = 1))
+        else null
+    }
+
+    fun newVad() = Vad(null, VadModelConfig(sileroVadModelConfig = SileroVadModelConfig(model = vadModel, threshold = 0.5f,
+        minSilenceDuration = 0.35f, minSpeechDuration = 0.25f, windowSize = WINDOW, maxSpeechDuration = 20f), sampleRate = RATE, numThreads = 1))
+
+    fun recognize(samples: FloatArray): String {
+        val stream = recognizer.createStream()
+        try {
+            stream.acceptWaveform(samples, RATE)
+            recognizer.decode(stream)
+            return recognizer.getResult(stream).text.trim()
+        } finally { stream.release() }
+    }
+
+    fun embed(samples: FloatArray): FloatArray? {
+        val e = extractor ?: return null
+        val stream = e.createStream()
+        try {
+            stream.acceptWaveform(samples, RATE); stream.inputFinished()
+            return if (e.isReady(stream)) e.compute(stream) else null
+        } finally { stream.release() }
+    }
+
+    override fun close() { recognizer.release(); extractor?.release() }
+
+    /** Feeds 16 kHz audio through a VAD in fixed windows and hands out finished utterances. */
+    class Splitter(private val vad: Vad) {
+        private val pending = FloatArray(WINDOW); private var filled = 0
+        fun feed(samples: FloatArray, utterance: (startSample: Int, FloatArray) -> Unit) {
+            for (v in samples) {
+                pending[filled++] = v
+                if (filled == WINDOW) { vad.acceptWaveform(pending.copyOf()); filled = 0; drain(utterance) }
+            }
+        }
+        fun finish(utterance: (Int, FloatArray) -> Unit) { vad.flush(); drain(utterance); vad.release() }
+        val speaking get() = vad.isSpeechDetected()
+        private fun drain(utterance: (Int, FloatArray) -> Unit) {
+            while (!vad.empty()) { val s = vad.front(); vad.pop(); utterance(s.start, s.samples) }
+        }
+    }
+
+    companion object {
+        const val RATE = 16000
+        const val WINDOW = 512
+        fun ready(store: ModelStore) = store.installed(ModelCatalog.vad) && store.active(ModelKind.Speech) != null
+        fun open(context: Context, speakers: Boolean): SpeechEngine {
+            val store = ModelStore(context)
+            check(ready(store)) { "文字起こしモデルと発話検出モデルをダウンロードしてください" }
+            return SpeechEngine(store, store.active(ModelKind.Speech)!!, speakers)
+        }
+    }
+}
+
+object Speech {
+    /** Transcribes a WAV file; speakers are clustered over the whole recording when the speaker model is installed. */
+    suspend fun transcribe(context: Context, wav: File, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
+        SpeechEngine.open(context, speakers = true).use { engine ->
+            val splitter = SpeechEngine.Splitter(engine.newVad())
+            val found = mutableListOf<Diarized>()
+            fun take(start: Int, samples: FloatArray) {
+                val text = engine.recognize(samples)
+                if (text.isNotBlank()) found += Diarized(Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text),
+                    engine.embed(samples), samples.size / 160)
+            }
+            Pcm.speech(wav) { chunk, p -> ensureActive(); splitter.feed(chunk, ::take); progress(p) }
+            splitter.finish(::take)
+            diarize(found)
+        }
+    }
+
+    class Diarized(val segment: Segment, val vector: FloatArray?, val frames: Int)
+
+    fun diarize(items: List<Diarized>, threshold: Float = 0.5f): List<Segment> {
+        if (items.none { it.vector != null }) return items.map { it.segment }
+        val labels = Diarization.cluster(items.map { Diarization.Utterance(it.vector, it.frames) }, threshold)
+        return items.mapIndexed { i, d -> d.segment.copy(speaker = Diarization.label(labels[i])) }
+    }
+}
+
+/**
+ * Captions while recording. Audio is queued so recognition never blocks capture; if the
+ * phone cannot keep up, captions stop and the audio is still saved.
+ */
+class LiveTranscriber(context: Context, private val rate: Int, private val channels: Int, scope: CoroutineScope,
+                      private val onUpdate: (segments: List<Segment>, speaking: Boolean) -> Unit) {
+    private val queue = Channel<ShortArray>(256)
+    private val result = CompletableDeferred<List<Segment>>()
+    @Volatile private var overloaded = false
+    /** Why captions stopped, if they did. Recording continues either way. */
+    val problem get() = when { overloaded -> "文字起こしが追いつかないため停止しました"; result.isCompleted -> "文字起こしを停止しました"; else -> null }
+    private var frames = 0L
+
+    init {
+        scope.launch(Dispatchers.Default) {
+            try {
+                SpeechEngine.open(context, speakers = false).use { engine ->
+                    val splitter = SpeechEngine.Splitter(engine.newVad())
+                    val resampler = Resampler(rate, SpeechEngine.RATE)
+                    val shown = mutableListOf<Segment>()
+                    fun take(start: Int, samples: FloatArray) {
+                        val text = engine.recognize(samples)
+                        if (text.isBlank()) return
+                        shown += Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
+                        onUpdate(shown.toList(), false)
+                    }
+                    var wasSpeaking = false
+                    for (pcm in queue) {
+                        val mono = FloatArray(pcm.size / channels) { f -> var s = 0; for (c in 0 until channels) s += pcm[f * channels + c]; s / channels / 32768f }
+                        splitter.feed(resampler.process(mono), ::take)
+                        if (splitter.speaking != wasSpeaking) { wasSpeaking = splitter.speaking; onUpdate(shown.toList(), wasSpeaking) }
+                    }
+                    splitter.finish(::take)
+                    result.complete(if (overloaded) emptyList() else shown.toList())
+                }
+            } catch (e: Throwable) {
+                result.completeExceptionally(e)
+            }
+        }
+    }
+
+    fun offer(pcm: ShortArray) {
+        if (overloaded || result.isCompleted) return
+        frames += pcm.size / channels
+        if (queue.trySend(pcm).isFailure) { overloaded = true; queue.close() }
+    }
+
+    suspend fun finish(): List<Segment> { queue.close(); return result.await() }
+}

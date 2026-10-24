@@ -1,3 +1,5 @@
+import java.net.URI
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -8,6 +10,26 @@ plugins {
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
+// sherpa-onnx is published as an AAR by its author on Hugging Face, not on Maven Central.
+// It is downloaded once and verified against a pinned SHA-256 before use.
+val sherpaVersion = "1.12.21"
+val sherpaSha256 = "6d1bf9a2ede218d9f33115f494058b83ae5c2af8a8275e64353c3de8c83a2603"
+val sherpaAar = layout.buildDirectory.file("deps/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
+val downloadSherpa by tasks.registering {
+    val target = sherpaAar
+    outputs.file(target)
+    doLast {
+        val file = target.get().asFile
+        fun sha(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        if (file.isFile && sha(file) == sherpaSha256) return@doLast
+        file.parentFile.mkdirs()
+        val temp = File(file.path + ".part")
+        URI("https://huggingface.co/csukuangfj/sherpa-onnx-libs/resolve/main/android/aar/$sherpaVersion/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
+            .toURL().openStream().use { input -> temp.outputStream().use { input.copyTo(it) } }
+        check(sha(temp) == sherpaSha256) { "sherpa-onnx AAR checksum mismatch" }
+        check(temp.renameTo(file))
+    }
+}
 android {
     namespace = "org.openrecorder.app"
     compileSdk = 35
@@ -43,8 +65,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("com.alphacephei:vosk-android:0.3.75@aar")
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    // On-device speech: VAD, recognition (ReazonSpeech / SenseVoice) and speaker embeddings (Apache-2.0).
+    implementation(files(sherpaAar).builtBy(downloadSherpa))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     // Screen previews rendered on the JVM (ScreenshotTest); run with -Pscreenshots.

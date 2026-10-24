@@ -46,8 +46,8 @@ fun RecordScreen(capture: CaptureState, recording: Recording?, actions: RecordAc
             val total = (capture.durationMs / (1000 / Levels.PER_SECOND)).toInt()
             ScrollingWaveform(LevelTrack.tail(capture.levels, total), capture.durationMs, capture.durationMs,
                 recording?.marks?.map { it.timeMs }.orEmpty(), Modifier.fillMaxWidth().height(200.dp))
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), contentAlignment = Alignment.TopStart) {
-                if (capture.liveText.isNotBlank()) Text(capture.liveText, style = MaterialTheme.typography.bodyLarge, maxLines = 6, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), contentAlignment = Alignment.BottomStart) {
+                LiveCaptions(capture)
             }
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 32.dp), horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically) {
@@ -90,5 +90,20 @@ fun RoundAction(icon: ImageVector, label: String, enabled: Boolean = true, badge
             }
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** The last few captions, newest at the bottom. */
+@Composable
+private fun LiveCaptions(capture: CaptureState) {
+    val colors = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        capture.live.takeLast(4).forEachIndexed { i, s ->
+            val latest = i == capture.live.takeLast(4).lastIndex
+            Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (latest) colors.onSurface else colors.onSurfaceVariant,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        if (capture.speaking) Text("…", style = MaterialTheme.typography.titleLarge, color = colors.outline)
+        if (capture.liveStatus.isNotBlank()) Text(capture.liveStatus, style = MaterialTheme.typography.labelMedium, color = colors.error)
     }
 }
