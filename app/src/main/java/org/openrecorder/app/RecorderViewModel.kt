@@ -12,6 +12,9 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import org.openrecorder.app.ai.*
 import org.openrecorder.app.audio.AudioCodec
 import org.openrecorder.app.audio.RecordingService
@@ -34,6 +37,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     private val prefs = org.openrecorder.app.data.RecordingPrefs(app)
     val options = MutableStateFlow(prefs.load())
     val ai = MutableStateFlow(runCatching { app.aiSettings.load() }.getOrDefault(AiConfig()))
+    /** Unsaved AI settings. Held here so an edit survives rotation; never in saved state, because it holds API keys. */
+    val aiDraft = androidx.compose.runtime.mutableStateOf<AiConfig?>(null)
+    private var savingAi: Job? = null
     private var rangeStop: Job? = null
     val player: ExoPlayer = ExoPlayer.Builder(app).setAudioAttributes(
         androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -121,8 +127,11 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun moveToFolder(id: String, folder: String) = task("保存中") { repo.update(id) { it.copy(folder=folder.trim().take(100)) } }
     fun emptyTrash() = task("削除中") { repo.recordings.value.filter { it.deletedAt != null && !it.unfinished }.forEach { repo.permanentlyDelete(it.id) } }
     fun favorite(id: String) = task("保存中") { repo.update(id) { it.copy(favorite = !it.favorite) } }
-    fun trash(id: String) { if(loaded == id) { player.stop(); loaded = null }; task("ごみ箱へ移動中") { repo.update(id) { it.copy(deletedAt = System.currentTimeMillis()) } } }
-    fun restore(id: String) = task("復元中") { repo.update(id) { it.copy(deletedAt = null) } }
+    fun trash(ids: List<String>) {
+        if(loaded in ids) { player.stop(); loaded = null }
+        task("ごみ箱へ移動中") { val now = System.currentTimeMillis(); ids.forEach { id -> repo.update(id) { it.copy(deletedAt = now) } } }
+    }
+    fun restore(ids: List<String>) = task("復元中") { ids.forEach { id -> repo.update(id) { it.copy(deletedAt = null) } } }
     fun delete(id: String) = task("削除中") { repo.permanentlyDelete(id) }
     fun edit(id: String, start: Long, end: Long, remove: Boolean, done: (String) -> Unit) = task("保存中") {
         val r = repo.get(id) ?: error("録音がありません")
@@ -136,7 +145,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         val wav = repo.wav(r) { p -> busy.value = "準備中 ${(p*100).toInt()}%" }
         val result = if(remote) RemoteAi().transcribe(wav,app.aiSettings.load(),r.durationMs)
         else Speech.transcribe(app,wav) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
-        repo.update(id) { it.copy(segments = result,summary = "") }
+        repo.update(id) { it.copy(segments = result,summary = "",translationLanguage = "") }
         if(result.isEmpty()) message.value = "音声を認識できませんでした"
     }
     /** Offline extractive summary; also proposes a title from the transcript's keywords. */
@@ -179,7 +188,8 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         repo.update(id) { it.copy(title = title.ifBlank { it.title }, summary = summary) }
     }
     fun updateSegment(id: String, index: Int, text: String, speaker: String) = task("文章を保存中") {
-        repo.update(id) { r -> r.copy(segments = r.segments.mapIndexed { i,s -> if(i == index) s.copy(text=text,speaker=speaker.trim()) else s }, summary="") }
+        repo.update(id) { r -> r.copy(segments = r.segments.mapIndexed { i,s ->
+            if(i == index) s.copy(text=text,speaker=speaker.trim(),translation = if(text == s.text) s.translation else "") else s }, summary="") }
     }
     fun renameSpeaker(id: String, old: String, next: String) = task("話者名を保存中") {
         repo.update(id) { it.copy(segments = it.segments.map { s -> if(s.speaker == old) s.copy(speaker=next.trim()) else s }, summary="") }
@@ -188,7 +198,18 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun import(uri: Uri, title: String) = task("取り込み中") {
         repo.importAudio(uri,title) { p -> busy.value = "取り込み中 ${(p*100).toInt()}%" }
     }
-    fun saveAi(config: AiConfig) = task("保存中") { app.aiSettings.save(config); ai.value = config }
+    fun updateAiDraft(change: (AiConfig) -> AiConfig) { aiDraft.value = change(aiDraft.value ?: ai.value) }
+    /** Saves the AI settings draft, then [done]. Not a [task]: it is quick and must not be refused while a transcription runs. */
+    fun saveAi(done: () -> Unit) {
+        val draft = aiDraft.value
+        if(draft == null || draft == ai.value) { aiDraft.value = null; done(); return }
+        if(savingAi?.isActive == true) return
+        savingAi = viewModelScope.launch {
+            try { withContext(Dispatchers.IO) { app.aiSettings.save(draft) }; ai.value = draft; aiDraft.value = null; done() }
+            catch(e: CancellationException) { throw e }
+            catch(e: Exception) { message.value = e.message ?: "設定を保存できません" }
+        }
+    }
     suspend fun models(provider: Provider, config: AiConfig, forTranscription: Boolean): List<String> {
         val all = RemoteAi().listModels(config.baseUrl(provider,forTranscription), config.keys[provider].orEmpty())
         return if(forTranscription) all.filter { it.contains("whisper") || it.contains("transcribe") }.ifEmpty { all } else all
@@ -200,6 +221,8 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     val downloads = ModelDownloadService.state
     /** Bumped when installed models change, so screens re-read the store. */
     val modelsVersion = MutableStateFlow(0)
+    // Re-read the store when a download starts or finishes, whichever screen is shown.
+    init { viewModelScope.launch { downloads.map { it.keys }.distinctUntilChanged().drop(1).collect { modelsVersion.value++ } } }
     fun download(spec: ModelSpec) = ModelDownloadService.start(app, spec.id)
     fun cancelDownload(spec: ModelSpec) = ModelDownloadService.cancel(app, spec.id)
     fun deleteModel(spec: ModelSpec) { models.delete(spec); modelsVersion.value++ }

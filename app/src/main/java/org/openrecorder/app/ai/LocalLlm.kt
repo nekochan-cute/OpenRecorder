@@ -18,8 +18,8 @@ object LocalLlm {
     private val lock = Mutex()
 
     fun ready(context: Context) = ModelStore(context).active(ModelKind.Llm) != null
-    /** LiteRT-LM ships native code for arm64-v8a and x86_64 only. */
-    val supported get() = android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" || it == "x86_64" }
+    /** LiteRT-LM ships native code for arm64-v8a and x86_64 only; a 32-bit APK on a 64-bit device has no library to load. */
+    val supported get() = android.os.Process.is64Bit() && android.os.Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" || it == "x86_64" }
 
     suspend fun <T> use(context: Context, block: suspend (TextGenerator) -> T): T = lock.withLock {
         check(supported) { "この端末では端末内AIを使用できません" }

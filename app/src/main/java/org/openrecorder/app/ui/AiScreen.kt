@@ -3,6 +3,7 @@ package org.openrecorder.app.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -23,8 +25,10 @@ import kotlinx.coroutines.launch
 import org.openrecorder.app.ai.AiConfig
 import org.openrecorder.app.ai.Provider
 
+/** [update] changes the draft held by the caller; [back] saves it and leaves. */
 class AiActions(
-    val back: (AiConfig) -> Unit = {},
+    val update: ((AiConfig) -> AiConfig) -> Unit = {},
+    val back: () -> Unit = {},
     val models: suspend (Provider, AiConfig, forTranscription: Boolean) -> List<String> = { _, _, _ -> emptyList() },
     val login: suspend () -> String = { "" },
     val openUrl: (String) -> Unit = {},
@@ -32,23 +36,23 @@ class AiActions(
 )
 
 @Composable
-fun AiScreen(initial: AiConfig, actions: AiActions) {
-    var c by remember { mutableStateOf(initial) }
-    androidx.activity.compose.BackHandler { actions.back(c) }
+fun AiScreen(c: AiConfig, actions: AiActions) {
+    val set = actions.update
+    androidx.activity.compose.BackHandler { actions.back() }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("AIサービス") }, navigationIcon = { IconButton({ actions.back(c) }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "戻る") } })
+        TopAppBar(title = { Text("AIサービス") }, navigationIcon = { IconButton(actions.back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "戻る") } })
     }) { padding ->
         Column(Modifier.padding(padding).readable().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             SectionHeader("要約")
-            Service(c, false, Provider.entries, c.summaryProvider, { c = c.copy(summaryProvider = it, summaryModel = "") }, c.summaryBase, { c = c.copy(summaryBase = it) },
-                c.summaryModel, { c = c.copy(summaryModel = it) }, { p, k -> c = c.copy(keys = c.keys + (p to k)) }, actions)
+            Service(c, false, Provider.entries, c.summaryProvider, { p -> set { it.copy(summaryProvider = p, summaryModel = "") } }, c.summaryBase, { b -> set { it.copy(summaryBase = b) } },
+                c.summaryModel, { m -> set { it.copy(summaryModel = m) } }, { p, k -> set { it.copy(keys = it.keys + (p to k)) } }, actions)
             SectionHeader("文字起こし")
             val speech = Provider.entries.filter { it.transcription }
-            Service(c, true, speech, c.transcriptionProvider, { c = c.copy(transcriptionProvider = it, transcriptionModel = it?.speechModel.orEmpty()) },
-                c.transcriptionBase, { c = c.copy(transcriptionBase = it) }, c.transcriptionModel, { c = c.copy(transcriptionModel = it) },
-                { p, k -> c = c.copy(keys = c.keys + (p to k)) }, actions)
+            Service(c, true, speech, c.transcriptionProvider, { p -> set { it.copy(transcriptionProvider = p, transcriptionModel = p?.speechModel.orEmpty()) } },
+                c.transcriptionBase, { b -> set { it.copy(transcriptionBase = b) } }, c.transcriptionModel, { m -> set { it.copy(transcriptionModel = m) } },
+                { p, k -> set { it.copy(keys = it.keys + (p to k)) } }, actions)
             if (c.transcriptionProvider != null) Field {
-                Dropdown("言語", listOf("" to "自動", "ja" to "日本語", "en" to "English"), c.language) { c = c.copy(language = it) }
+                Dropdown("言語", listOf("" to "自動", "ja" to "日本語", "en" to "English"), c.language) { l -> set { it.copy(language = l) } }
             }
         }
     }
@@ -87,8 +91,13 @@ private fun OAuthKey(key: String, onKey: (String) -> Unit, actions: AiActions) {
             Text("接続済み", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
             TextButton({ onKey("") }) { Text("接続を解除") }
         } else if (manual) {
-            OutlinedTextField(key, { onKey(it.trim()) }, Modifier.fillMaxWidth(), label = { Text("APIキー") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation())
+            // Typed locally: committing each keystroke would replace the field with "接続済み" after the first character.
+            var text by remember { mutableStateOf("") }
+            val save = { if (text.isNotBlank()) onKey(text.trim()) }
+            OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), label = { Text("APIキー") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { save() }),
+                trailingIcon = { TextButton(save, enabled = text.isNotBlank()) { Text("保存") } })
         } else Column {
             Button({
                 job = scope.launch {

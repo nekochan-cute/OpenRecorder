@@ -35,7 +35,7 @@ class LibraryActions(
     val open: (String) -> Unit = {}, val record: () -> Unit = {}, val showRecording: () -> Unit = {},
     val import: () -> Unit = {}, val trash: () -> Unit = {}, val settings: () -> Unit = {},
     val favorite: (String) -> Unit = {}, val rename: (String, String) -> Unit = { _, _ -> }, val move: (String, String) -> Unit = { _, _ -> },
-    val delete: (String) -> Unit = {}, val merge: (List<String>) -> Unit = {},
+    val delete: (List<String>) -> Unit = {}, val merge: (List<String>) -> Unit = {},
 )
 
 @Composable
@@ -49,8 +49,12 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
     androidx.activity.compose.BackHandler(selected.isNotEmpty()) { selected = emptyList() }
     val active = recordings.filter { it.deletedAt == null && !it.unfinished }
     val folders = active.map { it.folder }.filter(String::isNotBlank).distinct().sorted()
+    val favorites = active.any { it.favorite }
+    // The selected folder or the last favourite can disappear (chips hidden too); then show everything again.
+    val current = filter.takeIf { it.isEmpty() || (it == FAVORITES && favorites) || it in folders } ?: ""
+    if (current != filter) SideEffect { filter = current }
     val shown = active.filter { r ->
-        (filter.isEmpty() || (filter == FAVORITES && r.favorite) || r.folder == filter) && matches(r, query)
+        (current.isEmpty() || (current == FAVORITES && r.favorite) || r.folder == current) && matches(r, query)
     }
     Scaffold(
         topBar = {
@@ -58,7 +62,7 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
                 if (mode == 2) TopAppBar(navigationIcon = { IconButton({ selected = emptyList() }) { Icon(Icons.Rounded.Close, "選択を解除") } },
                     title = { Text("${selected.size}件を選択") }, actions = {
                         IconButton({ actions.merge(selected); selected = emptyList() }, enabled = selected.size >= 2) { Icon(Icons.Rounded.MergeType, "結合") }
-                        IconButton({ selected.forEach(actions.delete); selected = emptyList() }) { Icon(Icons.Rounded.Delete, "削除") }
+                        IconButton({ actions.delete(selected); selected = emptyList() }) { Icon(Icons.Rounded.Delete, "削除") }
                     })
                 else if (mode == 1) SearchBar(query, { query = it }) { searching = false; query = "" }
                 else TopAppBar(title = { Text("録音") }, actions = {
@@ -76,14 +80,14 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
         bottomBar = { RecordBar(capture, actions) },
     ) { padding ->
         Column(Modifier.padding(padding).readable()) {
-            if (folders.isNotEmpty() || active.any { it.favorite }) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+            if (folders.isNotEmpty() || favorites) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val chipColors = FilterChipDefaults.filterChipColors(iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer)
-                FilterChip(filter.isEmpty(), { filter = "" }, { Text("すべて") }, colors = chipColors)
-                if (active.any { it.favorite }) FilterChip(filter == FAVORITES, { filter = FAVORITES }, { Text("お気に入り") }, colors = chipColors,
+                FilterChip(current.isEmpty(), { filter = "" }, { Text("すべて") }, colors = chipColors)
+                if (favorites) FilterChip(current == FAVORITES, { filter = FAVORITES }, { Text("お気に入り") }, colors = chipColors,
                     leadingIcon = { Icon(Icons.Rounded.StarBorder, null, Modifier.size(18.dp)) })
-                folders.forEach { f -> FilterChip(filter == f, { filter = f }, { Text(f) }, colors = chipColors,
+                folders.forEach { f -> FilterChip(current == f, { filter = f }, { Text(f) }, colors = chipColors,
                     leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp)) }) }
             }
             when {
@@ -159,7 +163,7 @@ private fun RecordingRow(r: Recording, actions: LibraryActions, rename: () -> Un
             DropdownMenuItem({ Text("名前を変更") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("フォルダーに移動") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) })
             DropdownMenuItem({ Text("選択") }, { menu = false; select() }, leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) })
-            DropdownMenuItem({ Text("削除") }, { menu = false; actions.delete(r.id) }, leadingIcon = { Icon(Icons.Rounded.Delete, null) })
+            DropdownMenuItem({ Text("削除") }, { menu = false; actions.delete(listOf(r.id)) }, leadingIcon = { Icon(Icons.Rounded.Delete, null) })
         }
     }
 }

@@ -23,6 +23,7 @@ fun EditorScreen(r: Recording, levels: ByteArray?, position: Long, playing: Bool
     val d = r.durationMs.coerceAtLeast(1)
     var start by remember(r.id) { mutableLongStateOf(d / 4) }
     var end by remember(r.id) { mutableLongStateOf(d * 3 / 4) }
+    val gap = minOf(500L, d / 2) // shortest selection; never more than half, so very short recordings keep valid bounds
     Scaffold(topBar = {
         TopAppBar(title = { Text("切り取り") }, navigationIcon = { IconButton(actions.close) { Icon(Icons.Rounded.Close, "閉じる") } })
     }, bottomBar = {
@@ -45,11 +46,11 @@ fun EditorScreen(r: Recording, levels: ByteArray?, position: Long, playing: Bool
             }
             Spacer(Modifier.height(24.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                OutlinedIconButton({ start = position.coerceIn(0, end - 500) }) { Icon(Icons.Rounded.FirstPage, "再生位置を開始点に") }
+                OutlinedIconButton({ start = position.coerceAtMost(end - gap).coerceAtLeast(0) }) { Icon(Icons.Rounded.FirstPage, "再生位置を開始点に") }
                 FilledIconButton({ if (playing) actions.pause() else actions.playRange(start, end) }, Modifier.size(64.dp)) {
                     Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "一時停止" else "選択部分を再生", Modifier.size(32.dp))
                 }
-                OutlinedIconButton({ end = position.coerceIn(start + 500, d) }) { Icon(Icons.Rounded.LastPage, "再生位置を終了点に") }
+                OutlinedIconButton({ end = position.coerceAtLeast(start + gap).coerceAtMost(d) }) { Icon(Icons.Rounded.LastPage, "再生位置を終了点に") }
             }
         }
     }

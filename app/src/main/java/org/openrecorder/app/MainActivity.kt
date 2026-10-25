@@ -103,7 +103,9 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
         if (uri != null) vm.import(uri, displayName(context, uri)?.substringBeforeLast('.') ?: "取り込んだ音声")
     }
     val importLlm = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importLlm(uri) }
-    var photoTarget by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    // Saveable: the Activity can be recreated while the photo picker is open.
+    var photoTarget by rememberSaveable(saver = listSaver<MutableState<Pair<String, Long>?>, Any>(
+        { s -> s.value?.let { listOf(it.first, it.second) }.orEmpty() }, { l -> mutableStateOf(if (l.isEmpty()) null else l[0] as String to l[1] as Long) })) { mutableStateOf(null) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val t = photoTarget
         if (uri != null && t != null) vm.mark(t.first, t.second, photo = uri)
@@ -118,7 +120,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                 current == "library" -> LibraryScreen(all, capture, LibraryActions(
                     open = { vm.load(it); go("detail/$it") }, record = ::record, showRecording = { go("record") },
                     import = { importAudio.launch(arrayOf("audio/*", "application/ogg")) }, trash = { go("trash") }, settings = { go("settings") },
-                    favorite = vm::favorite, rename = vm::rename, move = vm::moveToFolder, delete = { vm.trash(it); undoTrash(vm, snackbar, it) },
+                    favorite = vm::favorite, rename = vm::rename, move = vm::moveToFolder, delete = { ids -> vm.trash(ids); undoTrash(vm, snackbar, ids) },
                     merge = { ids -> vm.merge(ids) { id -> vm.load(id); go("detail/$id") } }))
                 current == "record" -> RecordScreen(capture, all.firstOrNull { it.id == capture.id }, RecordActions(
                     pause = { vm.command(RecordingService.PAUSE) }, stop = { vm.command(RecordingService.STOP) },
@@ -134,7 +136,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                         playRange = vm::playRange, pause = vm::stopPlayback, seek = vm::seek,
                         save = { s, e, remove -> vm.stopPlayback(); vm.edit(r.id, s, e, remove) { newId -> back(); replace("detail/$newId") } }))
                 } ?: LaunchedEffect(Unit) { back() }
-                current == "trash" -> TrashScreen(all, ::back, vm::restore, vm::delete, vm::emptyTrash)
+                current == "trash" -> TrashScreen(all, ::back, { vm.restore(listOf(it)) }, vm::delete, vm::emptyTrash)
                 current == "settings" -> {
                     val options by vm.options.collectAsStateWithLifecycle()
                     val ai by vm.ai.collectAsStateWithLifecycle()
@@ -145,15 +147,16 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                         SettingsActions(back = ::back, options = vm::setOptions, models = { go("models") }, ai = { go("ai") }, licenses = { go("licenses") },
                             source = { openUrl("https://github.com/nekochan-cute/OpenRecorder") }))
                 }
-                current == "ai" -> AiScreen(vm.ai.collectAsStateWithLifecycle().value, AiActions(back = { c -> if (c != vm.ai.value) vm.saveAi(c); back() },
-                    models = { p, c, speech -> vm.models(p, c, speech) }, login = { vm.loginOpenRouter(openUrl) }, openUrl = openUrl,
-                    error = { vm.message.value = it }))
+                current == "ai" -> {
+                    val ai by vm.ai.collectAsStateWithLifecycle()
+                    AiScreen(vm.aiDraft.value ?: ai, AiActions(update = vm::updateAiDraft, back = { vm.saveAi(::back) },
+                        models = { p, c, speech -> vm.models(p, c, speech) }, login = { vm.loginOpenRouter(openUrl) }, openUrl = openUrl,
+                        error = { vm.message.value = it }))
+                }
                 current == "licenses" -> Licenses(::back)
                 current == "models" -> {
                     val downloads by vm.downloads.collectAsStateWithLifecycle()
                     vm.modelsVersion.collectAsStateWithLifecycle().value
-                    // Re-read the store when a download finishes.
-                    LaunchedEffect(downloads.keys) { vm.modelsVersion.value++ }
                     val rows = (org.openrecorder.app.ai.ModelCatalog.all + org.openrecorder.app.ai.ModelCatalog.customLlm).map { spec ->
                         ModelRow(spec, vm.models.installed(spec), vm.models.active(spec.kind)?.id == spec.id, downloads[spec.id])
                     }
@@ -185,13 +188,14 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
     val levels by vm.levels.collectAsStateWithLifecycle()
     val options by vm.options.collectAsStateWithLifecycle()
     val ai by vm.ai.collectAsStateWithLifecycle()
+    vm.modelsVersion.collectAsStateWithLifecycle().value // model readiness below
     LaunchedEffect(r.id) { vm.load(r.id) }
     DetailScreen(DetailState(r, levels, position, playing, options.playbackSpeed, options.skipSilence, busy,
         vm.speechReady(), ai.transcriptionReady, ai.summaryReady, vm.llmReady(), all.map { it.folder }.filter(String::isNotBlank).distinct().sorted()),
         DetailActions(back = back, playPause = vm::togglePlay, seek = vm::seek,
             speed = { vm.setOptions(options.copy(playbackSpeed = it)) }, skipSilence = { vm.setOptions(options.copy(skipSilence = it)) },
             favorite = { vm.favorite(r.id) }, rename = { vm.rename(r.id, it) }, move = { vm.moveToFolder(r.id, it) },
-            trash = { vm.trash(r.id); back() }, edit = { vm.stopPlayback(); go("editor/${r.id}") },
+            trash = { vm.trash(listOf(r.id)); back() }, edit = { vm.stopPlayback(); go("editor/${r.id}") },
             enhance = { o: ProcessOptions -> vm.stopPlayback(); vm.process(r.id, o) { replace("detail/$it") } },
             share = { kind -> when (kind) {
                 "m4a" -> vm.exportAac(r) { share(it, "audio/mp4") }
@@ -220,8 +224,8 @@ private fun Licenses(back: () -> Unit) {
     }
 }
 
-private fun undoTrash(vm: RecorderViewModel, snackbar: SnackbarHostState, id: String) = scope(snackbar) {
-    if (snackbar.showSnackbar("ごみ箱に移動しました", "元に戻す", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) vm.restore(id)
+private fun undoTrash(vm: RecorderViewModel, snackbar: SnackbarHostState, ids: List<String>) = scope(snackbar) {
+    if (snackbar.showSnackbar("ごみ箱に移動しました", "元に戻す", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) vm.restore(ids)
 }
 
 private val uiScope = kotlinx.coroutines.MainScope()
