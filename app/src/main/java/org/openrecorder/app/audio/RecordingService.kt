@@ -95,7 +95,9 @@ class RecordingService : Service() {
         return START_NOT_STICKY
     }
     private fun notification(): Notification {
-        val open = PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        // The launcher's intent brings the existing screen back instead of stacking a new one on top.
+        val open = PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         fun command(action: String, code: Int) = PendingIntent.getService(this,code,Intent(this,RecordingService::class.java).setAction(action),PendingIntent.FLAG_IMMUTABLE)
         val s = mutableState.value
         return NotificationCompat.Builder(this,"capture").setSmallIcon(R.drawable.ic_recorder)

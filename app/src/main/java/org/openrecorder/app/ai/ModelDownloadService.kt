@@ -76,7 +76,9 @@ class ModelDownloadService : Service() {
     private fun notification(title: String, progress: Float): Notification =
         NotificationCompat.Builder(this, "models").setSmallIcon(R.drawable.ic_recorder).setContentTitle(title).setOngoing(true)
             .setProgress(1000, (progress * 1000).toInt(), progress <= 0f).setOnlyAlertOnce(true)
-            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)).build()
+            // The launcher's intent brings the existing screen back instead of stacking a new one on top.
+            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+                PendingIntent.FLAG_IMMUTABLE)).build()
 
     private suspend fun run() {
         val store = ModelStore(this)
