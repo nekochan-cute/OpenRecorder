@@ -24,4 +24,9 @@ class TextTest {
                 webVtt(listOf(Segment(3602005, 3603000, "こんにちは", "話者1"), Segment(0, 1000, "a --> b"))))
         } finally { java.util.Locale.setDefault(old) }
     }
+
+    @Test fun webVttEscapesCueTextButKeepsVoiceSpans() {
+        assertEquals("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n<v 話者1>a &lt;b&gt; &amp; c\n",
+            webVtt(listOf(Segment(0, 1000, "a <b> & c", "話者1"))))
+    }
 }

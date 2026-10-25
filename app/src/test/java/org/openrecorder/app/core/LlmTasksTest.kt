@@ -14,6 +14,13 @@ class LlmTasksTest {
         assertTrue(chunks.all { it.length <= 100 })
     }
 
+    @Test fun chunksSplitALineLongerThanTheLimitWithoutLosingText() {
+        val long = (0 until 250).joinToString("") { (it % 10).toString() }
+        val chunks = LlmTasks.chunks(listOf("short", long, "tail"), 100)
+        assertTrue(chunks.all { it.length <= 100 })
+        assertEquals("short" + long + "tail", chunks.joinToString("").replace("\n", ""))
+    }
+
     @Test fun shortTranscriptIsSummarisedInOneCall() = runBlocking {
         val prompts = mutableListOf<String>()
         val (title, body) = LlmTasks.summarize(segments, "会議", TextGenerator { _, user -> prompts += user; "## 新製品の打ち合わせ\n## 概要\n- 決めた" })

@@ -14,13 +14,13 @@ object LlmTasks {
 
     fun transcriptLines(segments: List<Segment>) = segments.map { s -> "[${timeLabel(s.startMs)}] ${if (s.speaker.isBlank()) "" else s.speaker + ": "}${s.text}" }
 
-    /** Groups lines into chunks of at most [limit] characters without splitting a line. */
+    /** Groups lines into chunks of at most [limit] characters; only a line longer than [limit] is split. */
     fun chunks(lines: List<String>, limit: Int = CHUNK_CHARS): List<String> {
         val out = mutableListOf<String>(); val current = StringBuilder()
-        for (line in lines) {
-            if (current.isNotEmpty() && current.length + line.length + 1 > limit) { out += current.toString(); current.clear() }
+        for (line in lines) for (piece in if (line.length > limit) line.chunked(limit) else listOf(line)) {
+            if (current.isNotEmpty() && current.length + piece.length + 1 > limit) { out += current.toString(); current.clear() }
             if (current.isNotEmpty()) current.append('\n')
-            current.append(line.take(limit))
+            current.append(piece)
         }
         if (current.isNotEmpty()) out += current.toString()
         return out
