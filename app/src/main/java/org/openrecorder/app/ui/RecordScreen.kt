@@ -8,6 +8,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import org.openrecorder.app.ui.icons.*
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,9 +52,7 @@ fun RecordScreen(capture: CaptureState, recording: Recording?, actions: RecordAc
             val total = (capture.durationMs / (1000 / Levels.PER_SECOND)).toInt()
             ScrollingWaveform(LevelTrack.tail(capture.levels, total), capture.durationMs, capture.durationMs,
                 recording?.marks?.map { it.timeMs }.orEmpty(), Modifier.fillMaxWidth().height(200.dp))
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), contentAlignment = Alignment.BottomStart) {
-                LiveCaptions(capture)
-            }
+            LiveCaptions(capture, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp))
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 32.dp), horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically) {
                 val enabled = capture.id != null && !capture.saving
@@ -94,22 +98,59 @@ fun RoundAction(icon: ImageVector, label: String, enabled: Boolean = true, badge
     }
 }
 
-/** The last few captions, newest at the bottom, with speaker colours matching the transcript. */
+/**
+ * All captions so far, newest at the bottom, with speaker colours matching the transcript. The text being
+ * spoken is shown provisionally and replaced in place by its final result. The list follows new text
+ * unless the user scrolls back to read; scrolling to the end or the button resumes following.
+ */
 @Composable
-private fun LiveCaptions(capture: CaptureState) {
+private fun LiveCaptions(capture: CaptureState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val dark = isDark
     val speakers = capture.live.map { it.speaker }.filter(String::isNotBlank).distinct()
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        capture.live.takeLast(4).forEachIndexed { i, s ->
-            val latest = i == capture.live.takeLast(4).lastIndex
-            Column {
-                if (s.speaker.isNotBlank()) Text(s.speaker, style = MaterialTheme.typography.labelMedium, color = speakerColor(speakers.indexOf(s.speaker), dark))
-                Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (latest) colors.onSurface else colors.onSurfaceVariant,
-                    maxLines = 3, overflow = TextOverflow.Ellipsis)
+    val list = rememberLazyListState()
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect {
+            when (it) {
+                is DragInteraction.Start -> follow = false
+                is DragInteraction.Stop, is DragInteraction.Cancel -> follow = !list.canScrollForward
             }
         }
-        if (capture.speaking) Text("…", style = MaterialTheme.typography.titleLarge, color = colors.outline)
+    }
+    LaunchedEffect(list) { snapshotFlow { list.canScrollForward }.collect { if (!it) follow = true } }
+    LaunchedEffect(capture.live.size, capture.partial, capture.speaking, follow) {
+        if (follow) { withFrameNanos {}; list.scrollToEnd() }
+    }
+    Column(modifier) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxSize(), list, verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {
+                itemsIndexed(capture.live, key = { i, _ -> i }) { i, s ->
+                    Column(Modifier.animateItem()) {
+                        if (s.speaker.isNotBlank()) Text(s.speaker, style = MaterialTheme.typography.labelMedium, color = speakerColor(speakers.indexOf(s.speaker), dark))
+                        Text(s.text, style = MaterialTheme.typography.bodyLarge, color = if (i == capture.live.lastIndex) colors.onSurface else colors.onSurfaceVariant)
+                    }
+                }
+                // Keyed like the caption it turns into, so the final text takes its place without a jump.
+                if (capture.partial.isNotBlank() || capture.speaking) item(key = capture.live.size) {
+                    if (capture.partial.isBlank()) Text("…", Modifier.animateItem(), style = MaterialTheme.typography.titleLarge, color = colors.outline)
+                    else Text(capture.partial, Modifier.animateItem(), style = MaterialTheme.typography.bodyLarge, color = colors.onSurface.copy(alpha = 0.6f))
+                }
+            }
+            if (!follow) SmallFloatingActionButton({ follow = true }, Modifier.align(Alignment.BottomEnd)) {
+                Icon(Icons.Rounded.KeyboardArrowDown, "最新の文字起こしへ")
+            }
+        }
         if (capture.liveStatus.isNotBlank()) Text(capture.liveStatus, style = MaterialTheme.typography.labelMedium, color = colors.error)
     }
+}
+
+/** Scrolls to the very end of the list; the last stretch is animated. */
+private suspend fun LazyListState.scrollToEnd() {
+    val lastIndex = layoutInfo.totalItemsCount - 1
+    if (lastIndex < 0) return
+    if (layoutInfo.visibleItemsInfo.none { it.index == lastIndex }) scrollToItem(lastIndex)
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull { it.index == lastIndex } ?: return
+    (last.offset + last.size - info.viewportEndOffset).takeIf { it > 0 }?.let { animateScrollBy(it.toFloat()) }
 }

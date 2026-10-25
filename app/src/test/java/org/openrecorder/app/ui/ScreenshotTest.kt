@@ -78,7 +78,7 @@ class ScreenshotTest {
     @Test fun recording() = snap("03-recording") {
         val recent = List(400) { i -> (0.25 + 0.6 * abs(sin(i / 6.0)) * abs(sin(i / 31.0))).toFloat() }
         RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", directional = true, speaking = true,
-            live = segments.take(4)),
+            live = segments.take(4), partial = "田中さんは金曜日までに"),
             meeting.copy(marks = listOf(Mark("m", 740_000, ""))), RecordActions())
     }
     @Test fun detailAudio() = snap("04-detail-audio") { DetailScreen(DetailState(meeting, levels, 12_400, false, localModel = true), DetailActions()) }

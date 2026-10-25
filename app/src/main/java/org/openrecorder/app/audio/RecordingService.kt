@@ -21,11 +21,12 @@ import java.io.RandomAccessFile
 
 /**
  * [levels]: recent waveform levels (0–1, dB scale), one per 50 ms, newest last.
- * [live]: captions so far with speakers; [speaking] while the current utterance is still open.
+ * [live]: captions so far with speakers; [partial]: provisional text of the utterance being spoken;
+ * [speaking] while the current utterance is still open.
  * [directional]: null when no direction was requested, else whether the device accepted it.
  */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
-    val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val speaking: Boolean = false,
+    val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val partial: String = "", val speaking: Boolean = false,
     val liveStatus: String = "", val input: String = "", val noiseReduction: Boolean = false, val directional: Boolean? = null,
     val saving: Boolean = false, val silenced: Boolean = false)
 
@@ -162,7 +163,8 @@ class RecordingService : Service() {
             audio.registerAudioRecordingCallback(mainExecutor,recordingCallback)
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"OpenRecorder:capture").apply { acquire() }
             if(intent.getBooleanExtra("live",false)) {
-                live = try { LiveTranscriber(this, rate, channels, scope) { segments, speaking -> mutableState.update { if(it.id == r.id) it.copy(live = segments, speaking = speaking) else it } } }
+                live = try { LiveTranscriber(this, rate, channels, scope) { segments, partial, speaking ->
+                    mutableState.update { if(it.id == r.id) it.copy(live = segments, partial = partial, speaking = speaking) else it } } }
                 catch(e: Throwable) { mutableState.update { it.copy(liveStatus = "文字起こしを開始できませんでした") }; null }
             }
             audio.startRecording()
