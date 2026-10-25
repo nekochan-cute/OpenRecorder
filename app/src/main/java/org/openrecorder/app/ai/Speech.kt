@@ -1,6 +1,7 @@
 package org.openrecorder.app.ai
 
 import android.content.Context
+import android.os.SystemClock
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -16,6 +17,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.openrecorder.app.core.*
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * On-device speech with sherpa-onnx: Silero VAD cuts speech into utterances, an offline recognizer
@@ -120,16 +122,18 @@ object Speech {
 
 /**
  * Captions and speakers while recording. Audio is queued so recognition never blocks capture; if the
- * phone cannot keep up, captions stop and the audio is still saved.
+ * phone cannot keep up, captions stop and the audio is still saved. While someone is speaking, the open
+ * utterance is decoded again every so often and shown as provisional text until its final result is in.
  */
 class LiveTranscriber(context: Context, private val rate: Int, private val channels: Int, scope: CoroutineScope,
-                      private val onUpdate: (segments: List<Segment>, speaking: Boolean) -> Unit) {
+                      private val onUpdate: (segments: List<Segment>, partial: String, speaking: Boolean) -> Unit) {
     private val queue = Channel<ShortArray>(256)
+    /** Chunks queued but not yet read; provisional decoding waits while recognition is behind. */
+    private val backlog = AtomicInteger()
     private val result = CompletableDeferred<List<Segment>>()
     @Volatile private var overloaded = false
     /** Why captions stopped, if they did. Recording continues either way. */
     val problem get() = when { overloaded -> "文字起こしが追いつかないため停止しました"; result.isCompleted -> "文字起こしを停止しました"; else -> null }
-    private var frames = 0L
 
     init {
         scope.launch(Dispatchers.Default) {
@@ -140,20 +144,37 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                     val online = OnlineDiarizer()
                     val items = mutableListOf<Speech.Diarized>()
                     val shown = mutableListOf<Segment>()
+                    val open = Utterance()
+                    var partial = ""
+                    var finished = false
                     fun take(start: Int, samples: FloatArray) {
+                        finished = true
                         val text = engine.recognize(samples)
                         if (text.isBlank()) return
                         val vector = engine.embed(samples)
                         val segment = Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
                         items += Speech.Diarized(segment, vector, samples.size / 160)
                         shown += segment.copy(speaker = Diarization.label(online.assign(vector, samples.size / 160)))
-                        onUpdate(shown.toList(), false)
                     }
-                    var wasSpeaking = false
+                    var published = Triple(0, "", false)
+                    var nextPartial = 0L
                     for (pcm in queue) {
+                        val behind = backlog.decrementAndGet()
                         val mono = FloatArray(pcm.size / channels) { f -> var s = 0; for (c in 0 until channels) s += pcm[f * channels + c]; s / channels / 32768f }
-                        splitter.feed(resampler.process(mono), ::take)
-                        if (splitter.speaking != wasSpeaking) { wasSpeaking = splitter.speaking; onUpdate(shown.toList(), wasSpeaking) }
+                        val samples = resampler.process(mono)
+                        splitter.feed(samples, ::take)
+                        val speaking = splitter.speaking
+                        // The pre-roll keeps the start of speech, which the VAD only recognises a moment later.
+                        if (finished) { finished = false; open.clear(); partial = "" } else open.add(samples)
+                        if (!speaking) { open.keepLast(PRE_ROLL); partial = "" }
+                        else if (behind <= MAX_BACKLOG && open.size >= MIN_PARTIAL && SystemClock.elapsedRealtime() >= nextPartial) {
+                            val started = SystemClock.elapsedRealtime()
+                            partial = engine.recognize(open.samples())
+                            val now = SystemClock.elapsedRealtime()
+                            nextPartial = now + maxOf(PARTIAL_INTERVAL_MS, (now - started) * 2)
+                        }
+                        val state = Triple(shown.size, partial, speaking)
+                        if (state != published) { published = state; onUpdate(shown.toList(), partial, speaking) }
                     }
                     splitter.finish(::take)
                     // Offline clustering over the whole recording is more accurate than the live labels.
@@ -167,9 +188,30 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
 
     fun offer(pcm: ShortArray) {
         if (overloaded || result.isCompleted) return
-        frames += pcm.size / channels
-        if (queue.trySend(pcm).isFailure) { overloaded = true; queue.close() }
+        backlog.incrementAndGet()
+        if (queue.trySend(pcm).isFailure) { backlog.decrementAndGet(); overloaded = true; queue.close() }
     }
 
     suspend fun finish(): List<Segment> { queue.close(); return result.await() }
+
+    /** 16 kHz samples of the utterance being spoken, plus a short pre-roll. */
+    private class Utterance {
+        private var data = FloatArray(SpeechEngine.RATE * 4)
+        var size = 0; private set
+        fun add(samples: FloatArray) {
+            if (size + samples.size > data.size) data = data.copyOf(maxOf(data.size * 2, size + samples.size))
+            samples.copyInto(data, size); size += samples.size
+        }
+        fun keepLast(n: Int) { if (size > n) { data.copyInto(data, 0, size - n, size); size = n } }
+        fun clear() { size = 0 }
+        fun samples() = data.copyOf(size)
+    }
+
+    private companion object {
+        const val PRE_ROLL = SpeechEngine.RATE / 2
+        const val MIN_PARTIAL = SpeechEngine.RATE * 3 / 10
+        const val PARTIAL_INTERVAL_MS = 250L
+        /** 20 ms chunks, so about 100 ms of unread audio. */
+        const val MAX_BACKLOG = 5
+    }
 }
