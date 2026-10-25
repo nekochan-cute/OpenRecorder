@@ -214,6 +214,7 @@ class RecordingService : Service() {
                     closed.getOrThrow()
                     repo.complete(key, frames * 1000 / rate, liveSegments, allLevels.toByteArray())
                 }.onFailure { mutableState.update { it.copy(error = "保存処理が中断されました。次回起動時に回収します。") } }
+                repo.endCapture(key)
             }
             mutableState.update { it.copy(id = null,paused = false,saving = false) }
             withContext(NonCancellable + Dispatchers.Main) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }

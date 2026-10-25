@@ -85,16 +85,22 @@ class RecordingRepository(private val context: Context) {
     @Synchronized fun update(id: String, change: (Recording) -> Recording) {
         commit(_recordings.value.map { if (it.id == id) change(it) else it })
     }
-    /** AAC is written as ADTS (.aac) while recording and becomes .m4a in [complete]. */
-    fun create(rate: Int, channels: Int, format: RecordFormat = RecordFormat.Wav): Recording {
+    /** Recordings this process is capturing right now. Their files are still being written, so recovery leaves them alone. */
+    private val capturing = mutableSetOf<String>()
+
+    /** AAC is written as ADTS (.aac) while recording and becomes .m4a in [complete]. Call [endCapture] once the file is closed. */
+    @Synchronized fun create(rate: Int, channels: Int, format: RecordFormat = RecordFormat.Wav): Recording {
         val id = UUID.randomUUID().toString()
         val ext = if (format == RecordFormat.Aac) "aac" else format.extension
         val r = Recording(id = id, title = "録音 " + java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.JAPAN).format(java.util.Date()),
             fileName = "$id.$ext", sampleRate = rate, channels = channels, unfinished = true)
         if (format == RecordFormat.Wav) file(r).writeBytes(Wav.header(0, rate, channels)) else file(r).writeBytes(ByteArray(0))
-        try { add(r) } catch (e: Exception) { file(r).delete(); throw e }
+        capturing += id
+        try { add(r) } catch (e: Exception) { capturing -= id; file(r).delete(); throw e }
         return r
     }
+    /** The capture of [id] has ended; if it was not completed, the next [recoverInterrupted] repairs it. */
+    @Synchronized fun endCapture(id: String) { capturing -= id }
     /** Finalises a recording after a clean stop. */
     fun complete(id: String, durationMs: Long, segments: List<Segment>?, levels: ByteArray?) {
         val r = get(id) ?: return
@@ -220,7 +226,7 @@ class RecordingRepository(private val context: Context) {
             if(r == null) tomb.delete() else if(!file(r).exists()) check(tomb.renameTo(file(r)))
         }
         all = all.map { r ->
-            if (!r.unfinished) r else {
+            if (!r.unfinished || r.id in capturing) r else {
                 try {
                     when (r.fileName.substringAfterLast('.')) {
                         "wav" -> r.copy(durationMs = Wav.repair(file(r), r.sampleRate, r.channels).durationMs, unfinished = false, title = r.title + "（中断から回収）")
