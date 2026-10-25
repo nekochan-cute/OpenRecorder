@@ -28,9 +28,9 @@ object Text {
 
 fun vttTime(ms: Long): String = "%02d:%02d:%02d.%03d".format(Locale.ROOT, ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000)
 
-/** WebVTT captions; speakers use the standard voice span. */
+/** WebVTT captions; speakers use the standard voice span, and cue text escapes `&`, `<` and `>`. */
 fun webVtt(segments: List<Segment>): String = "WEBVTT\n\n" + segments.joinToString("\n\n") { s ->
-    val text = s.text.replace("\r", "").replace("\n", " ").replace("-->", "→")
+    val text = s.text.replace("\r", "").replace("\n", " ").replace("-->", "→").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     val speaker = s.speaker.replace(Regex("[\\r\\n<>&]"), " ").trim()
     "${vttTime(s.startMs)} --> ${vttTime(s.endMs)}\n" + (if (speaker.isBlank()) "" else "<v $speaker>") + text
 } + "\n"
