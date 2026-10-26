@@ -66,11 +66,18 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
 
     override fun close() { recognizer.release(); extractor?.release() }
 
-    /** Feeds 16 kHz audio through a VAD in fixed windows and hands out finished utterances. */
+    /**
+     * Feeds 16 kHz audio through a VAD in fixed windows and hands out finished utterances. The VAD marks the
+     * start of speech a little late and cuts off soft first sounds, so each utterance is extended back by up
+     * to [ONSET] samples, never into the previous utterance.
+     */
     class Splitter(private val vad: Vad) {
         private val pending = FloatArray(WINDOW); private var filled = 0
+        private val recent = RecentSamples(RECENT)
+        private var lastEnd = 0L
         fun feed(samples: FloatArray, utterance: (startSample: Int, FloatArray) -> Unit) {
             for (v in samples) {
+                recent.add(v)
                 pending[filled++] = v
                 if (filled == WINDOW) { vad.acceptWaveform(pending.copyOf()); filled = 0; drain(utterance) }
             }
@@ -78,13 +85,22 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
         fun finish(utterance: (Int, FloatArray) -> Unit) { vad.flush(); drain(utterance); vad.release() }
         val speaking get() = vad.isSpeechDetected()
         private fun drain(utterance: (Int, FloatArray) -> Unit) {
-            while (!vad.empty()) { val s = vad.front(); vad.pop(); utterance(s.start, s.samples) }
+            while (!vad.empty()) {
+                val s = vad.front(); vad.pop()
+                val (start, samples) = recent.extendBack(s.start.toLong(), s.samples, ONSET, lastEnd)
+                lastEnd = s.start.toLong() + s.samples.size
+                utterance(start.toInt(), samples)
+            }
         }
     }
 
     companion object {
         const val RATE = 16000
         const val WINDOW = 512
+        /** Audio added before each utterance; the provisional live captions use the same pre-roll. */
+        const val ONSET = RATE / 2
+        /** Longest utterance (20 s), plus the silence that ends it and [ONSET]. */
+        private const val RECENT = RATE * 24
         fun ready(store: ModelStore) = store.installed(ModelCatalog.vad) && store.active(ModelKind.Speech) != null
         fun open(context: Context, speakers: Boolean): SpeechEngine {
             val store = ModelStore(context)
@@ -166,7 +182,7 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                         val speaking = splitter.speaking
                         // The pre-roll keeps the start of speech, which the VAD only recognises a moment later.
                         if (finished) { finished = false; open.clear(); partial = "" } else open.add(samples)
-                        if (!speaking) { open.keepLast(PRE_ROLL); partial = "" }
+                        if (!speaking) { open.keepLast(SpeechEngine.ONSET); partial = "" }
                         else if (behind <= MAX_BACKLOG && open.size >= MIN_PARTIAL && SystemClock.elapsedRealtime() >= nextPartial) {
                             val started = SystemClock.elapsedRealtime()
                             partial = engine.recognize(open.samples())
@@ -208,7 +224,6 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
     }
 
     private companion object {
-        const val PRE_ROLL = SpeechEngine.RATE / 2
         const val MIN_PARTIAL = SpeechEngine.RATE * 3 / 10
         const val PARTIAL_INTERVAL_MS = 250L
         /** 20 ms chunks, so about 100 ms of unread audio. */
