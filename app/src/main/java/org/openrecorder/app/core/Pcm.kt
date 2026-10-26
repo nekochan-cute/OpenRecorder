@@ -42,6 +42,31 @@ class Resampler(private val inRate: Int, private val outRate: Int) {
     }
 }
 
+/** The last [capacity] samples of a stream, addressed by their position in the stream. */
+class RecentSamples(private val capacity: Int) {
+    private val ring = FloatArray(capacity)
+    private var next = 0
+    /** Samples added so far. */
+    var total = 0L; private set
+
+    fun add(v: Float) { ring[next] = v; next = if (next + 1 == capacity) 0 else next + 1; total++ }
+
+    /**
+     * [samples], which start at position [start], extended back by up to [onset] samples, but never to
+     * before [notBefore] or to audio no longer held. Returns the new start and the extended samples.
+     */
+    fun extendBack(start: Long, samples: FloatArray, onset: Int, notBefore: Long): Pair<Long, FloatArray> {
+        val from = maxOf(start - onset, notBefore, total - capacity, 0L).coerceAtMost(start)
+        val pad = (start - from).toInt()
+        if (pad == 0) return start to samples
+        val out = FloatArray(pad + samples.size)
+        // The ring slot of position p is p % capacity, because slot 0 held position 0.
+        for (i in 0 until pad) out[i] = ring[((from + i) % capacity).toInt()]
+        samples.copyInto(out, pad)
+        return from to out
+    }
+}
+
 object Pcm {
     /** Reads a 16-bit WAV in chunks of about [chunkFrames] frames, calling [block] with interleaved samples in [-1, 1]. */
     fun read(file: File, chunkFrames: Int = 8192, block: (FloatArray, WavInfo) -> Unit) {

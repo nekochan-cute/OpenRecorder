@@ -64,4 +64,25 @@ class PcmTest {
         val a = wav(16000, 1, 0.1) { _, _ -> 0f }
         assertThrows(IllegalArgumentException::class.java) { Concat.join(listOf(a), File.createTempFile("x", ".wav"), 16000, 1) }
     }
+
+    /** Each sample's value is its position, so the extended audio shows where it came from. */
+    private fun stream(capacity: Int, length: Int) = RecentSamples(capacity).apply { repeat(length) { add(it.toFloat()) } }
+    private fun segment(start: Int, size: Int) = FloatArray(size) { (start + it).toFloat() }
+
+    @Test fun utterancesAreExtendedBackButNotIntoThePreviousOneOrBeforeTheStart() {
+        val s = stream(1000, 200)
+        val (start, samples) = s.extendBack(100, segment(100, 20), onset = 30, notBefore = 0)
+        assertEquals(70L, start)
+        assertArrayEquals(segment(70, 50), samples, 0f)
+        assertEquals(90L, s.extendBack(100, segment(100, 20), onset = 30, notBefore = 90).first)
+        assertEquals(0L, s.extendBack(10, segment(10, 20), onset = 30, notBefore = 0).first)
+    }
+
+    @Test fun utterancesAreOnlyExtendedOverAudioStillHeld() {
+        val s = stream(64, 300)                          // positions 236..299 are held, the ring has wrapped
+        val (start, samples) = s.extendBack(250, segment(250, 10), onset = 100, notBefore = 0)
+        assertEquals(236L, start)
+        assertArrayEquals(segment(236, 24), samples, 0f)
+        assertEquals(290L, s.extendBack(290, segment(290, 5), onset = 30, notBefore = 295).first) // never later than the utterance
+    }
 }
