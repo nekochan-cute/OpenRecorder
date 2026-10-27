@@ -35,7 +35,7 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
                 transducer = OfflineTransducerModelConfig(store.file(speech, "encoder.onnx").path, store.file(speech, "decoder.onnx").path, store.file(speech, "joiner.onnx").path),
                 tokens = store.file(speech, "tokens.txt").path, numThreads = 2, modelType = "transducer")
             else -> OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(model = store.file(speech, "model.onnx").path, language = "auto", useInverseTextNormalization = true),
+                senseVoice = OfflineSenseVoiceModelConfig(model = store.file(speech, "model.onnx").path, language = store.senseVoiceLanguage, useInverseTextNormalization = true),
                 tokens = store.file(speech, "tokens.txt").path, numThreads = 2)
         }
         recognizer = OfflineRecognizer(null, OfflineRecognizerConfig(featConfig = FeatureConfig(sampleRate = RATE, featureDim = 80), modelConfig = model))

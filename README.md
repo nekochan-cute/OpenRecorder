@@ -41,7 +41,7 @@ Downloaded under **Settings → Models**; interrupted downloads resume.
 | --- | --- | --- |
 | Transcription (ja) | ReazonSpeech v2, int8 | 160 MB |
 | Transcription (ja, meetings and lectures) | ReazonSpeech v2, fp32 | 614 MB |
-| Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8 | 239 MB |
+| Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8; language detected or fixed | 239 MB |
 | Speech detection | Silero VAD | 2 MB |
 | Speakers | 3D-Speaker CAM++ | 28 MB |
 | Summary and translation | Gemma 4 E2B, TinySwallow 1.5B or your own `.litertlm` | 2.6 GB / 1.6 GB |
