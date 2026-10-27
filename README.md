@@ -40,6 +40,7 @@ Models are not bundled; download them under **Settings → Models** (downloads r
 | Purpose | Model | Size |
 | --- | --- | --- |
 | Transcription (Japanese) | ReazonSpeech v2, int8 | 160 MB |
+| Transcription (Japanese, meetings and lectures) | ReazonSpeech v2, fp32: fewer errors on distant or reverberant speech, about 1.7× the compute | 614 MB |
 | Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8 | 239 MB |
 | Speech detection (required) | Silero VAD | 2 MB |
 | Speakers | 3D-Speaker CAM++ | 28 MB |

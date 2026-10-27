@@ -31,7 +31,7 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
 
     init {
         val model = when (speech.id) {
-            ModelCatalog.reazon.id -> OfflineModelConfig(
+            ModelCatalog.reazon.id, ModelCatalog.reazonFp32.id -> OfflineModelConfig(
                 transducer = OfflineTransducerModelConfig(store.file(speech, "encoder.onnx").path, store.file(speech, "decoder.onnx").path, store.file(speech, "joiner.onnx").path),
                 tokens = store.file(speech, "tokens.txt").path, numThreads = 2, modelType = "transducer")
             else -> OfflineModelConfig(
