@@ -40,6 +40,7 @@ Downloaded under **Settings → Models**; interrupted downloads resume.
 | Purpose | Model | Size |
 | --- | --- | --- |
 | Transcription (ja) | ReazonSpeech v2, int8 | 160 MB |
+| Transcription (ja, meetings and lectures) | ReazonSpeech v2, fp32 | 614 MB |
 | Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8 | 239 MB |
 | Speech detection | Silero VAD | 2 MB |
 | Speakers | 3D-Speaker CAM++ | 28 MB |
