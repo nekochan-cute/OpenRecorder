@@ -20,8 +20,9 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * On-device speech with sherpa-onnx: Silero VAD cuts speech into utterances, an offline recognizer
- * (ReazonSpeech or SenseVoice) transcribes each one, and a speaker-embedding model labels who spoke.
+ * On-device speech with sherpa-onnx: audio is brought to a steady level ([SpeechLeveler]), Silero VAD cuts speech into
+ * utterances, an offline recognizer (ReazonSpeech or SenseVoice) transcribes each one, and a speaker-embedding model
+ * labels who spoke.
  */
 class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : AutoCloseable {
     private val vadModel = store.file(ModelCatalog.vad, "silero_vad.onnx").path
@@ -115,13 +116,14 @@ object Speech {
     suspend fun transcribe(context: Context, wav: File, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
         SpeechEngine.open(context, speakers = true).use { engine ->
             val splitter = SpeechEngine.Splitter(engine.newVad())
+            val leveler = SpeechLeveler(SpeechEngine.RATE)
             val found = mutableListOf<Diarized>()
             fun take(start: Int, samples: FloatArray) {
                 val text = engine.recognize(samples)
                 if (text.isNotBlank()) found += Diarized(Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text),
                     engine.embed(samples), samples.size / 160)
             }
-            Pcm.speech(wav) { chunk, p -> ensureActive(); splitter.feed(chunk, ::take); progress(p) }
+            Pcm.speech(wav) { chunk, p -> ensureActive(); leveler.process(chunk); splitter.feed(chunk, ::take); progress(p) }
             splitter.finish(::take)
             diarize(found)
         }
@@ -157,6 +159,7 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                 SpeechEngine.open(context, speakers = true).use { engine ->
                     val splitter = SpeechEngine.Splitter(engine.newVad())
                     val resampler = Resampler(rate, SpeechEngine.RATE)
+                    val leveler = SpeechLeveler(SpeechEngine.RATE)
                     val online = OnlineDiarizer()
                     val items = mutableListOf<Speech.Diarized>()
                     val shown = mutableListOf<Segment>()
@@ -177,7 +180,7 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                     for (pcm in queue) {
                         val behind = backlog.decrementAndGet()
                         val mono = FloatArray(pcm.size / channels) { f -> var s = 0; for (c in 0 until channels) s += pcm[f * channels + c]; s / channels / 32768f }
-                        val samples = resampler.process(mono)
+                        val samples = resampler.process(mono).also(leveler::process)
                         splitter.feed(samples, ::take)
                         val speaking = splitter.speaking
                         // The pre-roll keeps the start of speech, which the VAD only recognises a moment later.

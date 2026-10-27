@@ -90,6 +90,36 @@ class DspTest {
         assertEquals(0.5, AudioProcessor.limit(0.5), 0.0)
     }
 
+    private fun tone(seconds: Int, amplitude: Double) = FloatArray(rate * seconds) { i -> (amplitude * sin(2 * PI * 300 * i / rate)).toFloat() }
+
+    /** Runs a fresh leveler over [input] in uneven chunks, as audio arrives while recording. */
+    private fun leveled(input: FloatArray): FloatArray {
+        val leveler = SpeechLeveler(rate); val out = input.copyOf()
+        var i = 0; var n = 333
+        while (i < out.size) { val end = minOf(out.size, i + n); val chunk = out.copyOfRange(i, end); leveler.process(chunk); chunk.copyInto(out, i); i = end; n = n * 7 % 1601 + 1 }
+        return out
+    }
+
+    @Test fun speechLevelerLiftsQuietSpeechAfterTheFirstSecond() {
+        val quiet = tone(6, 0.01) // -43 dBFS, a talker across the room
+        val out = leveled(quiet)
+        assertEquals("nothing measured yet in the first second", rms(quiet, 0, rate), rms(out, 0, rate), 1e-9)
+        assertEquals(SpeechLeveler.TARGET_DB, db(rms(out, rate, out.size)), 0.5)
+    }
+
+    @Test fun speechLevelerGainIsCappedAndSilenceStaysSilent() {
+        val faint = tone(4, 0.0015) // -59.5 dBFS: would need about +40 dB
+        val out = leveled(faint)
+        assertEquals(AudioProcessor.MAX_GAIN_DB, db(rms(out, 2 * rate, out.size) / rms(faint, 2 * rate, faint.size)), 0.1)
+        assertTrue(leveled(FloatArray(rate * 3)).all { it == 0f })
+    }
+
+    @Test fun speechLevelerFollowsALouderTalkerWithoutClipping() {
+        val out = leveled(tone(20, 0.01) + tone(20, 0.3))
+        assertTrue("the boost for the quiet talker must not clip the loud one", out.all { abs(it) <= 1f })
+        assertEquals(SpeechLeveler.TARGET_DB, db(rms(out, 30 * rate, out.size)), 0.5)
+    }
+
     /** Amplitude of one frequency (Goertzel). */
     private fun level(x: FloatArray, hz: Double, from: Int, to: Int): Double {
         val w = 2 * PI * hz / rate; var s1 = 0.0; var s2 = 0.0
