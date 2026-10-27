@@ -227,6 +227,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun cancelDownload(spec: ModelSpec) = ModelDownloadService.cancel(app, spec.id)
     fun deleteModel(spec: ModelSpec) { models.delete(spec); modelsVersion.value++ }
     fun chooseModel(spec: ModelSpec) { models.choose(spec); modelsVersion.value++ }
+    fun chooseSenseVoiceLanguage(code: String) { models.senseVoiceLanguage = code; modelsVersion.value++ }
     fun importLlm(uri: Uri) = task("モデルを追加中") {
         models.importLlm(uri) { p -> busy.value = "モデルを追加中 ${(p*100).toInt()}%" }
         models.choose(ModelCatalog.customLlm); modelsVersion.value++

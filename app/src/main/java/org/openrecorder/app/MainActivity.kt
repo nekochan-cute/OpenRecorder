@@ -160,8 +160,9 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     val rows = (org.openrecorder.app.ai.ModelCatalog.all + org.openrecorder.app.ai.ModelCatalog.customLlm).map { spec ->
                         ModelRow(spec, vm.models.installed(spec), vm.models.active(spec.kind)?.id == spec.id, downloads[spec.id])
                     }
-                    ModelsScreen(rows, org.openrecorder.app.ai.LocalLlm.supported, ModelActions(back = ::back, download = vm::download, cancel = vm::cancelDownload,
-                        delete = vm::deleteModel, choose = vm::chooseModel, importLlm = { importLlm.launch(arrayOf("*/*")) }))
+                    ModelsScreen(rows, org.openrecorder.app.ai.LocalLlm.supported, vm.models.senseVoiceLanguage, ModelActions(back = ::back, download = vm::download,
+                        cancel = vm::cancelDownload, delete = vm::deleteModel, choose = vm::chooseModel, importLlm = { importLlm.launch(arrayOf("*/*")) },
+                        senseVoiceLanguage = vm::chooseSenseVoiceLanguage))
                 }
             }
         }
