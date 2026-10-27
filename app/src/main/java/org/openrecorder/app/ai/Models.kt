@@ -64,6 +64,13 @@ class ModelStore(private val context: Context) {
     }
     fun choose(spec: ModelSpec) { prefs.edit().putString(spec.kind.name, spec.id).apply() }
 
+    /** Language SenseVoice is told to expect: "auto" lets it detect each utterance, else ja / en / zh / ko / yue. */
+    var senseVoiceLanguage: String
+        get() = prefs.getString(SENSE_VOICE_LANGUAGE, "auto")!!
+        set(value) { prefs.edit().putString(SENSE_VOICE_LANGUAGE, value).apply() }
+
+    private companion object { const val SENSE_VOICE_LANGUAGE = "senseVoiceLanguage" }
+
     /** Copies a user-picked LiteRT-LM model into the store. */
     fun importLlm(uri: Uri, progress: (Float) -> Unit) {
         val spec = ModelCatalog.customLlm
