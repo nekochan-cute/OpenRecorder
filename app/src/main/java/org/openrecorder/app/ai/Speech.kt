@@ -112,30 +112,27 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
 }
 
 object Speech {
-    /** Transcribes a WAV file; speakers are clustered over the whole recording when the speaker model is installed. */
+    /** Transcribes a WAV file; speakers are labelled when the speaker model is installed. */
     suspend fun transcribe(context: Context, wav: File, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
         SpeechEngine.open(context, speakers = true).use { engine ->
             val splitter = SpeechEngine.Splitter(engine.newVad())
             val leveler = SpeechLeveler(SpeechEngine.RATE)
-            val found = mutableListOf<Diarized>()
+            val speakers = SpeakerClusters()
+            val found = mutableListOf<Segment>()
             fun take(start: Int, samples: FloatArray) {
                 val text = engine.recognize(samples)
-                if (text.isNotBlank()) found += Diarized(Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text),
-                    engine.embed(samples), samples.size / 160)
+                if (text.isBlank()) return
+                found += Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
+                speakers.add(engine.embed(samples), samples.size / 160)
             }
             Pcm.speech(wav) { chunk, p -> ensureActive(); leveler.process(chunk); splitter.feed(chunk, ::take); progress(p) }
             splitter.finish(::take)
-            diarize(found)
+            labelled(found, speakers.final())
         }
     }
 
-    class Diarized(val segment: Segment, val vector: FloatArray?, val frames: Int)
-
-    fun diarize(items: List<Diarized>, threshold: Float = 0.5f): List<Segment> {
-        if (items.none { it.vector != null }) return items.map { it.segment }
-        val labels = Diarization.cluster(items.map { Diarization.Utterance(it.vector, it.frames) }, threshold)
-        return items.mapIndexed { i, d -> d.segment.copy(speaker = Diarization.label(labels[i])) }
-    }
+    /** [segments] with the speaker of each, from [SpeakerClusters]. */
+    fun labelled(segments: List<Segment>, labels: IntArray) = segments.mapIndexed { i, s -> s.copy(speaker = SpeakerClusters.label(labels[i])) }
 }
 
 /**
@@ -160,9 +157,9 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                     val splitter = SpeechEngine.Splitter(engine.newVad())
                     val resampler = Resampler(rate, SpeechEngine.RATE)
                     val leveler = SpeechLeveler(SpeechEngine.RATE)
-                    val online = OnlineDiarizer()
-                    val items = mutableListOf<Speech.Diarized>()
-                    val shown = mutableListOf<Segment>()
+                    val speakers = SpeakerClusters()
+                    val items = mutableListOf<Segment>()
+                    var shown = emptyList<Segment>()
                     val open = Utterance()
                     var partial = ""
                     var finished = false
@@ -171,9 +168,10 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                         val text = engine.recognize(samples)
                         if (text.isBlank()) return
                         val vector = engine.embed(samples)
-                        val segment = Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
-                        items += Speech.Diarized(segment, vector, samples.size / 160)
-                        shown += segment.copy(speaker = Diarization.label(online.assign(vector, samples.size / 160)))
+                        items += Segment(start * 1000L / SpeechEngine.RATE, (start + samples.size) * 1000L / SpeechEngine.RATE, text)
+                        speakers.add(vector, samples.size / 160)
+                        // Earlier captions may change speaker too, once a voice heard before is confirmed.
+                        shown = Speech.labelled(items, speakers.current())
                     }
                     var published = Triple(0, "", false)
                     var nextPartial = 0L
@@ -193,11 +191,11 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                             nextPartial = now + maxOf(PARTIAL_INTERVAL_MS, (now - started) * 2)
                         }
                         val state = Triple(shown.size, partial, speaking)
-                        if (state != published) { published = state; onUpdate(shown.toList(), partial, speaking) }
+                        if (state != published) { published = state; onUpdate(shown, partial, speaking) }
                     }
                     splitter.finish(::take)
-                    // Offline clustering over the whole recording is more accurate than the live labels.
-                    result.complete(if (overloaded) emptyList() else Speech.diarize(items))
+                    // Settled now that everything is heard: each utterance joins the nearest confirmed speaker.
+                    result.complete(if (overloaded) emptyList() else Speech.labelled(items, speakers.final()))
                 }
             } catch (e: Throwable) {
                 result.completeExceptionally(e)

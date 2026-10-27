@@ -3,106 +3,114 @@ package org.openrecorder.app.core
 import kotlin.math.sqrt
 
 /**
- * Offline speaker clustering for per-utterance speaker embeddings.
- * Leader clustering seeds speakers from reliable (long) utterances, k-means style passes refine
- * the centroids, close clusters are merged, and short or vector-less utterances inherit the
- * nearest speaker. Linear in the number of utterances, so hour-long recordings stay fast.
+ * Speaker labels from per-utterance speaker embeddings, taken in the order the utterances were spoken, so captions
+ * while recording and the transcript afterwards come from the same clustering.
+ *
+ * Each utterance joins the speaker whose running mean is nearest, if within [threshold] (cosine distance), or starts
+ * a new one. The embeddings of single utterances vary a lot (emotion, distance, turning the head), so one person
+ * was often counted as several: a voice therefore becomes a speaker only once it is heard a second time. Until then
+ * it shows as the nearest confirmed speaker, and earlier utterances are relabelled when it is confirmed.
  */
-object Diarization {
-    data class Utterance(val vector: FloatArray?, val frames: Int)
-
-    /** Returns a speaker index per utterance, numbered 0.. in order of first appearance; -1 if nothing was clusterable. */
-    fun cluster(utterances: List<Utterance>, threshold: Float = 0.5f, maxSpeakers: Int = 8, minFrames: Int = 100): IntArray {
-        val vectors = utterances.map { u -> u.vector?.takeIf { it.isNotEmpty() }?.let(::normalize) }
-        val reliable = vectors.indices.filter { vectors[it] != null && utterances[it].frames >= minFrames }
-            .ifEmpty { vectors.indices.filter { vectors[it] != null } }
-        if (reliable.isEmpty()) return IntArray(utterances.size) { -1 }
-        val dim = vectors[reliable.first()]!!.size
-        var centroids = mutableListOf<FloatArray>()
-        for (i in reliable) {
-            val v = vectors[i]!!
-            if (v.size != dim) continue
-            val (best, distance) = nearest(v, centroids)
-            if (best < 0 || (distance > threshold && centroids.size < maxSpeakers)) centroids += v.copyOf()
-        }
-        repeat(5) {
-            val sums = List(centroids.size) { FloatArray(dim) }
-            val counts = IntArray(centroids.size)
-            for (i in reliable) {
-                val v = vectors[i]!!.takeIf { it.size == dim } ?: continue
-                val c = nearest(v, centroids).first
-                for (d in 0 until dim) sums[c][d] += v[d] * utterances[i].frames.coerceAtLeast(1)
-                counts[c]++
-            }
-            centroids = sums.indices.filter { counts[it] > 0 }.map { normalize(sums[it]) }.toMutableList()
-        }
-        // Merge clusters whose centroids ended up closer than the threshold.
-        var merged = true
-        while (merged && centroids.size > 1) {
-            merged = false
-            loop@ for (a in centroids.indices) for (b in a + 1 until centroids.size) {
-                if (distance(centroids[a], centroids[b]) < threshold * 0.8f) {
-                    centroids[a] = normalize(FloatArray(dim) { centroids[a][it] + centroids[b][it] })
-                    centroids.removeAt(b); merged = true; break@loop
-                }
-            }
-        }
-        val raw = IntArray(utterances.size) { i -> vectors[i]?.takeIf { it.size == dim }?.let { nearest(it, centroids).first } ?: -1 }
-        // Vector-less utterances take the previous speaker, or the next one at the start.
-        for (i in raw.indices) if (raw[i] < 0) raw[i] = (i - 1 downTo 0).firstOrNull { raw[it] >= 0 }?.let { raw[it] }
-            ?: (i + 1 until raw.size).firstOrNull { raw[it] >= 0 }?.let { raw[it] } ?: -1
-        val order = LinkedHashMap<Int, Int>()
-        return IntArray(raw.size) { i -> if (raw[i] < 0) -1 else order.getOrPut(raw[i]) { order.size } }
-    }
-
-    /** Unit-length copy, so cosine distance is 1 - dot product. */
-    fun unit(v: FloatArray): FloatArray = normalize(v)
-
-    fun distance(a: FloatArray, b: FloatArray): Float {
-        var dot = 0f
-        for (i in a.indices) dot += a[i] * b[i]
-        return 1f - dot
-    }
-
-    private fun nearest(v: FloatArray, centroids: List<FloatArray>): Pair<Int, Float> {
-        var best = -1; var bestDistance = Float.MAX_VALUE
-        centroids.forEachIndexed { i, c -> val d = distance(v, c); if (d < bestDistance) { best = i; bestDistance = d } }
-        return best to bestDistance
-    }
-
-    private fun normalize(v: FloatArray): FloatArray {
-        var norm = 0f
-        for (x in v) norm += x * x
-        norm = sqrt(norm).takeIf { it > 0f } ?: 1f
-        return FloatArray(v.size) { v[it] / norm }
-    }
-
-    fun label(index: Int) = if (index < 0) "" else "話者${index + 1}"
-}
-
-/**
- * Speaker assignment while recording: each new utterance joins the nearest known speaker, or starts
- * a new one when nobody is close. Centroids are running means, so speakers stabilise as they talk.
- * The final transcript is re-clustered offline with [Diarization.cluster] when the recording ends.
- */
-class OnlineDiarizer(private val threshold: Float = 0.5f, private val maxSpeakers: Int = 8, private val minFrames: Int = 100) {
+class SpeakerClusters(private val threshold: Float = 0.5f, private val maxSpeakers: Int = 8, private val minFrames: Int = 100) {
     private val sums = ArrayList<FloatArray>()
     private val centroids = ArrayList<FloatArray>()
-    private var last = -1
+    private val counts = ArrayList<Int>()
+    /** Cluster → speaker number, in order of confirmation. */
+    private val number = LinkedHashMap<Int, Int>()
+    /** Per utterance: its cluster, or -1 when too short or without an embedding. */
+    private val cluster = ArrayList<Int>()
+    private val units = ArrayList<FloatArray?>()
+    private val frames = ArrayList<Int>()
 
-    /** Returns the speaker index, or the previous speaker for utterances too short to judge. */
-    fun assign(vector: FloatArray?, frames: Int): Int {
-        if (vector == null || vector.isEmpty() || (frames < minFrames && centroids.isNotEmpty())) return last.coerceAtLeast(if (centroids.isEmpty()) -1 else 0)
-        val v = Diarization.unit(vector)
+    /** Adds the next utterance; [frames] is its length in 10 ms frames. */
+    fun add(vector: FloatArray?, frames: Int) {
+        val v = vector?.takeIf { it.isNotEmpty() }?.let(::unit)
+        units += v; this.frames += frames
+        if (v == null || (frames < minFrames && centroids.isNotEmpty())) { cluster += -1; return }
         var best = -1; var bestDistance = Float.MAX_VALUE
-        centroids.forEachIndexed { i, c -> val d = Diarization.distance(v, c); if (d < bestDistance) { best = i; bestDistance = d } }
-        val index = if (best >= 0 && (bestDistance <= threshold || centroids.size >= maxSpeakers)) best else {
-            sums += FloatArray(v.size); centroids += v.copyOf(); centroids.size - 1
+        centroids.forEachIndexed { i, c -> val d = 1f - dot(v, c); if (d < bestDistance) { best = i; bestDistance = d } }
+        val index = if (best >= 0 && (bestDistance <= threshold || number.size >= maxSpeakers)) best else {
+            sums += FloatArray(v.size); centroids += v.copyOf(); counts += 0; centroids.size - 1
         }
         val sum = sums[index]
         for (d in v.indices) sum[d] += v[d]
-        centroids[index] = Diarization.unit(sum)
-        last = index
-        return index
+        centroids[index] = unit(sum); counts[index] += 1
+        if (index !in number && (counts[index] >= 2 || number.isEmpty())) number[index] = number.size
+        cluster += index
+    }
+
+    /**
+     * Labels as they stand while recording: confirmed speakers by number, a voice heard once as the nearest
+     * confirmed speaker, short or embedding-less utterances as the one before; -1 before anyone is heard.
+     */
+    fun current(): IntArray {
+        var last = -1
+        return IntArray(cluster.size) { i ->
+            val c = cluster[i]
+            if (c >= 0) last = number[c] ?: number.getValue(nearestConfirmed(centroids[c]))
+            last
+        }
+    }
+
+    /**
+     * Labels once everything is heard: every utterance joins the nearest confirmed speaker's final centroid, which
+     * corrects early choices made before the speakers had settled; a speaker left with a single reliable
+     * utterance joins the nearest other one. Numbered in order of appearance; -1 only if nobody was heard.
+     */
+    fun final(): IntArray {
+        if (number.isEmpty()) return IntArray(cluster.size) { -1 }
+        val confirmed = number.entries.sortedBy { it.value }.map { centroids[it.key] }
+        var last = -1
+        val labels = IntArray(cluster.size) { i ->
+            val v = units[i]
+            if (cluster[i] >= 0 && v != null) last = confirmed.indices.maxBy { dot(v, confirmed[it]) }
+            last
+        }
+        mergeSingles(labels)
+        val first = labels.firstOrNull { it >= 0 } ?: -1
+        for (i in labels.indices) { if (labels[i] >= 0) break; labels[i] = first }
+        return labels
+    }
+
+    private fun nearestConfirmed(v: FloatArray): Int = number.keys.maxBy { dot(v, centroids[it]) }
+
+    /** Speakers with fewer than two reliable utterances join the nearest other speaker, weakest first; then renumbers. */
+    private fun mergeSingles(labels: IntArray) {
+        while (true) {
+            val ids = labels.filter { it >= 0 }.distinct().sorted()
+            if (ids.size < 2) break
+            val support = ids.associateWith { k -> labels.indices.count { labels[it] == k && frames[it] >= minFrames } }
+            val weak = ids.filter { support.getValue(it) < 2 }
+            if (weak.isEmpty()) break
+            val total = ids.associateWith { k -> labels.indices.sumOf { if (labels[it] == k) frames[it] else 0 } }
+            val small = weak.minWith(compareBy({ support.getValue(it) }, { total.getValue(it) }))
+            val centre = ids.associateWith { k ->
+                val sum = FloatArray(units.firstNotNullOf { it }.size)
+                for (i in labels.indices) { val v = units[i]; if (labels[i] == k && v != null) for (d in v.indices) sum[d] += v[d] * frames[i] }
+                unit(sum)
+            }
+            val target = ids.filter { it != small }.maxBy { dot(centre.getValue(it), centre.getValue(small)) }
+            for (i in labels.indices) if (labels[i] == small) labels[i] = target
+        }
+        val order = LinkedHashMap<Int, Int>()
+        for (i in labels.indices) if (labels[i] >= 0) labels[i] = order.getOrPut(labels[i]) { order.size }
+    }
+
+    companion object {
+        /** "話者1", "話者2", …; empty for no speaker. */
+        fun label(index: Int) = if (index < 0) "" else "話者${index + 1}"
+
+        private fun dot(a: FloatArray, b: FloatArray): Float {
+            var s = 0f
+            for (i in a.indices) s += a[i] * b[i]
+            return s
+        }
+
+        private fun unit(v: FloatArray): FloatArray {
+            var norm = 0f
+            for (x in v) norm += x * x
+            norm = sqrt(norm).takeIf { it > 0f } ?: 1f
+            return FloatArray(v.size) { v[it] / norm }
+        }
     }
 }
