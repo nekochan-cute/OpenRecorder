@@ -187,12 +187,54 @@ class LoudnessMeter(rate: Int) {
         if (++count == blockFrames) { blocks += sum / count; sum = 0.0; count = 0 }
     }
     /** Gated RMS in dBFS, or null for silence. */
-    fun loudnessDb(): Double? {
-        val absolute = blocks.filter { it > 1e-6 }
-        if (absolute.isEmpty()) return null
-        val relative = absolute.average() * 10.0.pow(-1.5)
-        val gated = absolute.filter { it >= relative }
-        return 10 * log10(gated.average())
+    fun loudnessDb(): Double? = gatedLoudnessDb(blocks.toDoubleArray())
+}
+
+/** Gated mean of the first [count] block powers in dBFS: absolute -60 dBFS and relative -15 dB gates; null for silence. */
+internal fun gatedLoudnessDb(blocks: DoubleArray, count: Int = blocks.size): Double? {
+    var sum = 0.0; var n = 0
+    for (i in 0 until count) if (blocks[i] > 1e-6) { sum += blocks[i]; n++ }
+    if (n == 0) return null
+    val relative = sum / n * 10.0.pow(-1.5)
+    sum = 0.0; n = 0
+    for (i in 0 until count) if (blocks[i] > 1e-6 && blocks[i] >= relative) { sum += blocks[i]; n++ }
+    return 10 * log10(sum / n)
+}
+
+/**
+ * Keeps speech at a steady level for speech detection and recognition. Silero VAD misses quiet speech (a talker
+ * several metres away, around -40 dBFS) and ReazonSpeech recognises it less accurately, so once a second the gain
+ * is set to bring the gated loudness of the last 30 s to [TARGET_DB], boosting by at most [AudioProcessor.MAX_GAIN_DB].
+ * The gain only looks back, so captions while recording and transcription afterwards hear the same audio.
+ */
+class SpeechLeveler(private val rate: Int) {
+    private val blockFrames = max(1, rate / 20)
+    private val blocks = DoubleArray(WINDOW_BLOCKS)
+    private var blockCount = 0L
+    private var sum = 0.0; private var inBlock = 0; private var sinceUpdate = 0
+    private var gain = 1.0
+
+    /** Levels [samples] in place. */
+    fun process(samples: FloatArray) {
+        for (i in samples.indices) {
+            if (sinceUpdate == rate) { update(); sinceUpdate = 0 }
+            sinceUpdate++
+            val v = samples[i].toDouble()
+            sum += v * v
+            if (++inBlock == blockFrames) { blocks[(blockCount % WINDOW_BLOCKS).toInt()] = sum / blockFrames; blockCount++; sum = 0.0; inBlock = 0 }
+            samples[i] = AudioProcessor.limit(v * gain).toFloat()
+        }
+    }
+
+    private fun update() {
+        val db = gatedLoudnessDb(blocks, minOf(blockCount, WINDOW_BLOCKS.toLong()).toInt()) ?: return
+        gain = 10.0.pow(min(AudioProcessor.MAX_GAIN_DB, TARGET_DB - db) / 20)
+    }
+
+    companion object {
+        const val TARGET_DB = -20.0
+        /** 30 s of 50 ms blocks. */
+        private const val WINDOW_BLOCKS = 600
     }
 }
 
