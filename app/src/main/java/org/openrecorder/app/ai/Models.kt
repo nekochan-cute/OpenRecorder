@@ -17,10 +17,16 @@ private fun hf(repo: String, path: String, size: Long, name: String = path.subst
 
 /** Models the app can download. All are published on Hugging Face by their authors or the sherpa-onnx / LiteRT projects. */
 object ModelCatalog {
-    val reazon = ModelSpec("reazonspeech-k2-v2", ModelKind.Speech, "ReazonSpeech v2", "日本語・高精度", "Apache-2.0", listOf(
+    val reazon = ModelSpec("reazonspeech-k2-v2", ModelKind.Speech, "ReazonSpeech v2", "日本語・標準", "Apache-2.0", listOf(
         hf("csukuangfj/reazonspeech-k2-v2", "encoder-epoch-99-avg-1.int8.onnx", 154_670_139, "encoder.onnx"),
         hf("csukuangfj/reazonspeech-k2-v2", "decoder-epoch-99-avg-1.int8.onnx", 2_959_337, "decoder.onnx"),
         hf("csukuangfj/reazonspeech-k2-v2", "joiner-epoch-99-avg-1.int8.onnx", 2_696_970, "joiner.onnx"),
+        hf("csukuangfj/reazonspeech-k2-v2", "tokens.txt", 45_754)))
+    /** The same model without int8 quantization: fewer errors on distant or reverberant speech, about 1.7× the compute. */
+    val reazonFp32 = ModelSpec("reazonspeech-k2-v2-fp32", ModelKind.Speech, "ReazonSpeech v2 高精度", "日本語・会議や講義向け・重め", "Apache-2.0", listOf(
+        hf("csukuangfj/reazonspeech-k2-v2", "encoder-epoch-99-avg-1.onnx", 592_347_848, "encoder.onnx"),
+        hf("csukuangfj/reazonspeech-k2-v2", "decoder-epoch-99-avg-1.onnx", 11_767_836, "decoder.onnx"),
+        hf("csukuangfj/reazonspeech-k2-v2", "joiner-epoch-99-avg-1.onnx", 10_720_115, "joiner.onnx"),
         hf("csukuangfj/reazonspeech-k2-v2", "tokens.txt", 45_754)))
     val senseVoice = ModelSpec("sense-voice-2024-07-17", ModelKind.Speech, "SenseVoice Small", "日本語・英語・中国語・韓国語・広東語", "FunASR Model License", listOf(
         hf("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", "model.int8.onnx", 239_233_841, "model.onnx"),
@@ -36,7 +42,7 @@ object ModelCatalog {
     /** A .litertlm file the user picked; not downloadable. */
     val customLlm = ModelSpec("custom-llm", ModelKind.Llm, "自分で追加したモデル", ".litertlm", "", listOf(ModelFile("model.litertlm", "", 0)))
 
-    val all = listOf(reazon, senseVoice, vad, speaker, gemma, swallow)
+    val all = listOf(reazon, reazonFp32, senseVoice, vad, speaker, gemma, swallow)
     fun byId(id: String) = (all + customLlm).firstOrNull { it.id == id }
 }
 
