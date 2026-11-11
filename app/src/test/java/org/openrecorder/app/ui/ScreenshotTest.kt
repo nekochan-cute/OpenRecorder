@@ -21,6 +21,7 @@ import org.openrecorder.app.core.Mark
 import org.openrecorder.app.core.Recording
 import org.openrecorder.app.core.Segment
 import org.openrecorder.app.data.RecordingOptions
+import org.openrecorder.app.data.RecordingMode
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -73,11 +74,11 @@ class ScreenshotTest {
         (if ((i / 40) % 5 == 4) 25 else (60 + 180 * speech).toInt()).toByte()
     }
 
-    @Test fun library() = snap("01-library") { LibraryScreen(library, CaptureState(), LibraryActions()) }
-    @Test fun libraryEmpty() = snap("02-library-empty") { LibraryScreen(emptyList(), CaptureState(), LibraryActions()) }
+    @Test fun library() = snap("01-library") { LibraryScreen(library, CaptureState(), RecordingMode.Auto, LibraryActions()) }
+    @Test fun libraryEmpty() = snap("02-library-empty") { LibraryScreen(emptyList(), CaptureState(), RecordingMode.Auto, LibraryActions()) }
     @Test fun recording() = snap("03-recording") {
         val recent = List(400) { i -> (0.25 + 0.6 * abs(sin(i / 6.0)) * abs(sin(i / 31.0))).toFloat() }
-        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", directional = true, speaking = true,
+        RecordScreen(CaptureState(id = "a", durationMs = 754_300, levels = recent, input = "内蔵マイク", directional = null, speaking = true, mode = "自動：会議",
             live = segments.take(4), partial = "田中さんは金曜日までに"),
             meeting.copy(marks = listOf(Mark("m", 740_000, ""))), RecordActions())
     }
@@ -89,7 +90,7 @@ class ScreenshotTest {
     }
     @Test fun editor() = snap("08-editor") { EditorScreen(meeting, levels, 30_000, false, false, EditorActions()) }
     @Test fun settings() = snap("09-settings") {
-        SettingsScreen(RecordingOptions(direction = android.media.MicrophoneDirection.MIC_DIRECTION_AWAY_FROM_USER), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2・Gemma 4 E2B",
+        SettingsScreen(RecordingOptions(mode = RecordingMode.Lecture), listOf(1 to "内蔵マイク", 7 to "Pixel Buds（Bluetooth）"), true, "ReazonSpeech v2・Gemma 4 E2B",
             AiConfig(summaryProvider = Provider.OpenRouter), "0.1.0-dev", SettingsActions())
     }
     @Test fun ai() = snap("10-ai") {

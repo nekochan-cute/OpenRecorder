@@ -16,7 +16,7 @@ AI services are optional: connect OpenRouter, Google AI Studio, OpenAI, Groq or 
 
 | Area | |
 | --- | --- |
-| Recording | One tap to record, pause and resume, keeps recording with the screen off; AAC (M4A), MP3 or WAV; 16 or 48 kHz, mono or stereo; built-in / wired / USB / Bluetooth microphones; directional capture (front or towards you, with adjustable width) on phones that support it; crash-safe writing with recovery |
+| Recording | One tap to record, pause and resume, keeps recording with the screen off; AAC (M4A), MP3 or WAV; 16 or 48 kHz, mono or stereo; built-in / wired / USB / Bluetooth microphones; directional capture (front or towards you, with adjustable width) on phones that support it; recording modes (meeting, lecture, interview, voice memo, music, or automatic from the first seconds of sound) that set the microphone in one tap; crash-safe writing with recovery |
 | Playback | Scrolling waveform with marks, drag to scrub, ±10 s, 0.5×–3× speed, silence skipping |
 | Marks | Flag a moment while recording or playing, add a note or a photo, tap to jump |
 | Editing | Keep or remove a selected range, or join several recordings into one; the originals are kept |

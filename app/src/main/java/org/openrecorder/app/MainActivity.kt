@@ -117,11 +117,11 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
         AnimatedContent(route, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "route") { current ->
             val id = current.substringAfter('/', "")
             when {
-                current == "library" -> LibraryScreen(all, capture, LibraryActions(
+                current == "library" -> LibraryScreen(all, capture, vm.options.collectAsStateWithLifecycle().value.mode, LibraryActions(
                     open = { vm.load(it); go("detail/$it") }, record = ::record, showRecording = { go("record") },
                     import = { importAudio.launch(arrayOf("audio/*", "application/ogg")) }, trash = { go("trash") }, settings = { go("settings") },
                     favorite = vm::favorite, rename = vm::rename, move = vm::moveToFolder, delete = { ids -> vm.trash(ids); undoTrash(vm, snackbar, ids) },
-                    merge = { ids -> vm.merge(ids) { id -> vm.load(id); go("detail/$id") } }))
+                    merge = { ids -> vm.merge(ids) { id -> vm.load(id); go("detail/$id") } }, mode = vm::setMode))
                 current == "record" -> RecordScreen(capture, all.firstOrNull { it.id == capture.id }, RecordActions(
                     pause = { vm.command(RecordingService.PAUSE) }, stop = { vm.command(RecordingService.STOP) },
                     mark = { capture.id?.let { vm.mark(it, capture.durationMs) } }, photo = { capture.id?.let { pickPhoto(it, capture.durationMs) } },
