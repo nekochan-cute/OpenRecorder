@@ -102,7 +102,7 @@ class RecordingRepository(private val context: Context) {
     /** The capture of [id] has ended; if it was not completed, the next [recoverInterrupted] repairs it. */
     @Synchronized fun endCapture(id: String) { capturing -= id }
     /** Finalises a recording after a clean stop. */
-    fun complete(id: String, durationMs: Long, segments: List<Segment>?, levels: ByteArray?) {
+    fun complete(id: String, durationMs: Long, segments: List<Segment>?, levels: ByteArray?, mode: String) {
         val r = get(id) ?: return
         var fileName = r.fileName; var duration = durationMs
         when (r.fileName.substringAfterLast('.')) {
@@ -111,7 +111,7 @@ class RecordingRepository(private val context: Context) {
                 val m4a = File(audioDir, "$id.m4a"); AudioCodec.remuxAdts(file(r), m4a); file(r).delete(); fileName = m4a.name
             }
         }
-        update(id) { it.copy(fileName = fileName, durationMs = duration, unfinished = false, segments = segments ?: it.segments) }
+        update(id) { it.copy(fileName = fileName, durationMs = duration, unfinished = false, segments = segments ?: it.segments, mode = mode) }
         levels?.let { saveLevels(id, it) }
     }
     fun mark(id: String, time: Long, text: String, photo: String? = null) {
@@ -201,7 +201,8 @@ class RecordingRepository(private val context: Context) {
         val r = Recording(id = newId, title = "${parts.first().title}（結合）", fileName = name, durationMs = info.durationMs,
             sampleRate = info.sampleRate, channels = info.channels, folder = parts.first().folder,
             marks = parts.zip(offsets).flatMap { (p, o) -> p.marks.map { it.copy(timeMs = it.timeMs + o) } },
-            segments = parts.zip(offsets).flatMap { (p, o) -> p.segments.map { it.copy(startMs = it.startMs + o, endMs = it.endMs + o) } })
+            segments = parts.zip(offsets).flatMap { (p, o) -> p.segments.map { it.copy(startMs = it.startMs + o, endMs = it.endMs + o) } },
+            mode = parts.map { it.mode }.distinct().singleOrNull().orEmpty())
         try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
         return r
     }
@@ -256,6 +257,7 @@ class RecordingRepository(private val context: Context) {
         put("durationMs",r.durationMs); put("sampleRate",r.sampleRate); put("channels",r.channels)
         put("folder",r.folder); put("favorite",r.favorite); put("deletedAt",r.deletedAt ?: JSONObject.NULL)
         put("summary",r.summary); put("sourceId",r.sourceId ?: JSONObject.NULL); put("unfinished",r.unfinished); put("translationLanguage",r.translationLanguage)
+        put("mode",r.mode)
         put("peaks", JSONArray(r.peaks))
         put("marks",JSONArray().apply { r.marks.forEach { m -> put(JSONObject().apply {
             put("id",m.id); put("timeMs",m.timeMs); put("text",m.text); put("photo",m.photo ?: JSONObject.NULL)
@@ -271,6 +273,7 @@ class RecordingRepository(private val context: Context) {
             fileName = j.getString("fileName"), durationMs = j.optLong("durationMs"), sampleRate = j.optInt("sampleRate",48000), channels = j.optInt("channels",1),
             folder = j.optString("folder"), favorite = j.optBoolean("favorite"), deletedAt = if (j.isNull("deletedAt")) null else j.getLong("deletedAt"),
             summary = j.optString("summary"), translationLanguage = j.optString("translationLanguage"), sourceId = if(j.isNull("sourceId")) null else j.getString("sourceId"), unfinished = j.optBoolean("unfinished"),
+            mode = j.optString("mode"),
             peaks = (0 until peaks.length()).map { peaks.getDouble(it).toFloat().coerceIn(0f,1f) },
             marks = (0 until marks.length()).map { marks.getJSONObject(it).let { m -> Mark(m.getString("id"),m.getLong("timeMs"),m.getString("text"),if(m.isNull("photo")) null else m.getString("photo")) } },
             segments = (0 until segments.length()).map { segments.getJSONObject(it).let { s -> Segment(s.getLong("startMs"),s.getLong("endMs"),s.getString("text"),s.optString("speaker"),s.optString("translation")) } })

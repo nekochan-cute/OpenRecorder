@@ -22,7 +22,9 @@ data class Recording(
     val translationLanguage: String = "",
     val sourceId: String? = null,
     val unfinished: Boolean = false,
-    val peaks: List<Float> = emptyList()
+    val peaks: List<Float> = emptyList(),
+    /** Name of the recording mode it was made in; for the automatic mode, the situation it recognised. Empty when unknown. */
+    val mode: String = "",
 )
 
 data class Span(val startMs: Long, val endMs: Long) {

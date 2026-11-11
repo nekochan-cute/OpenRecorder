@@ -145,7 +145,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         val r = repo.get(id) ?: error("録音がありません")
         val wav = repo.wav(r) { p -> busy.value = "準備中 ${(p*100).toInt()}%" }
         val result = if(remote) RemoteAi().transcribe(wav,app.aiSettings.load(),r.durationMs)
-        else Speech.transcribe(app,wav) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
+        else Speech.transcribe(app,wav,org.openrecorder.app.data.RecordingMode.of(r.mode)) { p -> busy.value = "文字起こし中 ${(p*100).toInt()}%" }
         repo.update(id) { it.copy(segments = result,summary = "",translationLanguage = "") }
         if(result.isEmpty()) message.value = "音声を認識できませんでした"
     }
