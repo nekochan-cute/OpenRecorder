@@ -21,7 +21,7 @@ AI services (OpenRouter, Google AI Studio, OpenAI, Groq, OpenAI-compatible APIs)
 | Marks | Notes and photos at a moment, tap to jump |
 | Editing | Keep or remove a range, or join recordings; originals are kept |
 | Library | Folders, favourites, search, trash, import |
-| Transcription | Live captions and saved audio with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech, SenseVoice) or an AI service; editable, tap to play |
+| Transcription | Live captions and saved audio with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech, Haas, SenseVoice; captions and saved audio can use different models) or an AI service; editable, tap to play |
 | Speakers | Speaker labels on the device, live and refined after recording; rename and fix |
 | Summary | On-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B, TinySwallow 1.5B), extractive summary or an AI service; meeting, lecture and interview templates |
 | Translation | Seven languages with the on-device LLM or an AI service; timestamps and speakers are kept |
@@ -41,6 +41,7 @@ Downloaded under **Settings → Models**; interrupted downloads resume.
 | --- | --- | --- |
 | Transcription (ja) | ReazonSpeech v2, int8 | 160 MB |
 | Transcription (ja, meetings and lectures) | ReazonSpeech v2, fp32 | 614 MB |
+| Transcription (ja, after recording) | Haas-ja v1.0, int8/4-bit | 480 MB |
 | Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8; language detected or fixed | 239 MB |
 | Speech detection | Silero VAD | 2 MB |
 | Speakers | 3D-Speaker CAM++ | 28 MB |

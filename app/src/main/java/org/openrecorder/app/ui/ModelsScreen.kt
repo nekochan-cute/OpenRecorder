@@ -20,6 +20,8 @@ import org.openrecorder.app.ai.DownloadState
 import org.openrecorder.app.ai.ModelCatalog
 import org.openrecorder.app.ai.ModelKind
 import org.openrecorder.app.ai.ModelSpec
+import org.openrecorder.app.ai.SpeechUse
+import org.openrecorder.app.ui.icons.automirrored.Notes
 import org.openrecorder.app.ui.icons.*
 import java.util.Locale
 
@@ -29,33 +31,43 @@ data class ModelRow(val spec: ModelSpec, val installed: Boolean, val active: Boo
 class ModelActions(
     val back: () -> Unit = {}, val download: (ModelSpec) -> Unit = {}, val cancel: (ModelSpec) -> Unit = {},
     val delete: (ModelSpec) -> Unit = {}, val choose: (ModelSpec) -> Unit = {}, val importLlm: () -> Unit = {},
-    val senseVoiceLanguage: (String) -> Unit = {},
+    val senseVoiceLanguage: (String) -> Unit = {}, val chooseSpeech: (SpeechUse, ModelSpec) -> Unit = { _, _ -> },
 )
 
 /** SenseVoice language codes and their labels; "auto" detects the language of each utterance. */
 private val senseVoiceLanguages = listOf("auto" to "自動", "ja" to "日本語", "en" to "英語", "zh" to "中国語", "ko" to "韓国語", "yue" to "広東語")
 
-/** [senseVoiceLanguage]: the language SenseVoice expects, shown only while SenseVoice is the chosen model. */
+/**
+ * [speech]: the model used for each [SpeechUse]. [senseVoiceLanguage]: the language SenseVoice expects, shown only while
+ * SenseVoice is used for captions or files.
+ */
 @Composable
-fun ModelsScreen(rows: List<ModelRow>, llmSupported: Boolean, senseVoiceLanguage: String, actions: ModelActions) {
+fun ModelsScreen(rows: List<ModelRow>, speech: Map<SpeechUse, ModelSpec?>, llmSupported: Boolean, senseVoiceLanguage: String, actions: ModelActions) {
     var deleting by remember { mutableStateOf<ModelSpec?>(null) }
     var choosingLanguage by remember { mutableStateOf(false) }
+    var choosingUse by remember { mutableStateOf<SpeechUse?>(null) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("モデル") }, navigationIcon = { IconButton(actions.back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "戻る") } })
     }) { padding ->
         Column(Modifier.padding(padding).readable().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             fun section(kind: ModelKind) = rows.filter { it.spec.kind == kind }
             SectionHeader("文字起こし")
-            section(ModelKind.Speech).forEach {
-                ModelItem(it, actions, chooseable = true) { deleting = it.spec }
-                // Detecting the language per utterance mistakes noisy or distant Japanese for Korean or Chinese.
-                if (it.spec.id == ModelCatalog.senseVoice.id && it.active) ListItem({ Text("認識する言語") },
-                    Modifier.clickable { choosingLanguage = true }.padding(horizontal = 8.dp),
-                    supportingContent = { Text(senseVoiceLanguages.firstOrNull { (code, _) -> code == senseVoiceLanguage }?.second ?: "自動") },
-                    leadingContent = { Spacer(Modifier.size(48.dp)) },
+            val installedSpeech = section(ModelKind.Speech).filter { it.installed }.map { it.spec }
+            SpeechUse.entries.forEach { use ->
+                ListItem({ Text(use.label) }, Modifier.clickable(enabled = installedSpeech.isNotEmpty()) { choosingUse = use }.padding(horizontal = 8.dp),
+                    supportingContent = { Text(speech[use]?.title ?: "モデルをダウンロードしてください") },
+                    leadingContent = { Icon(if (use == SpeechUse.Live) Icons.Rounded.ClosedCaption else Icons.AutoMirrored.Rounded.Notes, null, Modifier.size(48.dp).padding(12.dp)) },
                     trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             }
+            // Detecting the language per utterance mistakes noisy or distant Japanese for Korean or Chinese.
+            if (ModelCatalog.senseVoice in speech.values) ListItem({ Text("認識する言語") },
+                Modifier.clickable { choosingLanguage = true }.padding(horizontal = 8.dp),
+                supportingContent = { Text(senseVoiceLanguages.firstOrNull { (code, _) -> code == senseVoiceLanguage }?.second ?: "自動") },
+                leadingContent = { Spacer(Modifier.size(48.dp)) },
+                trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            section(ModelKind.Speech).forEach { ModelItem(it, actions, chooseable = false) { deleting = it.spec } }
             SectionHeader("話し声の検出・話者")
             (section(ModelKind.Vad) + section(ModelKind.Speaker)).forEach { ModelItem(it, actions, chooseable = false) { deleting = it.spec } }
             SectionHeader("要約・翻訳")
@@ -76,6 +88,12 @@ fun ModelsScreen(rows: List<ModelRow>, llmSupported: Boolean, senseVoiceLanguage
     }
     if (choosingLanguage) Choice("認識する言語", senseVoiceLanguages, senseVoiceLanguage, { choosingLanguage = false }) {
         actions.senseVoiceLanguage(it); choosingLanguage = false
+    }
+    choosingUse?.let { use ->
+        val installed = rows.filter { it.spec.kind == ModelKind.Speech && it.installed }.map { it.spec }
+        Choice(use.label, installed.map { it.id to it.title }, speech[use]?.id, { choosingUse = null }) { id ->
+            installed.firstOrNull { it.id == id }?.let { actions.chooseSpeech(use, it) }; choosingUse = null
+        }
     }
 }
 
