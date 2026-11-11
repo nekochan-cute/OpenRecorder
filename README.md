@@ -21,7 +21,7 @@ AI services are optional: connect OpenRouter, Google AI Studio, OpenAI, Groq or 
 | Marks | Flag a moment while recording or playing, add a note or a photo, tap to jump |
 | Editing | Keep or remove a selected range, or join several recordings into one; the originals are kept |
 | Library | Folders, favourites, search across titles, transcripts, marks and summaries, trash, import of any format the phone can decode |
-| Transcription | Live captions while recording and transcription of saved audio on the device with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech for Japanese, SenseVoice for Japanese/English/Chinese/Korean) or with an AI service; edit text, tap a sentence to play from there |
+| Transcription | Live captions while recording and transcription of saved audio on the device with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech or Haas for Japanese, SenseVoice for Japanese/English/Chinese/Korean; captions and saved audio can use different models) or with an AI service; edit text, tap a sentence to play from there |
 | Speakers | Speaker separation on the device, live while recording and refined over the whole recording afterwards; rename speakers, fix a sentence's speaker |
 | Summary | Generative summary with an on-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B or TinySwallow 1.5B), extractive summary, or an AI service; automatic title; templates for meetings (decisions, action items), lectures and interviews |
 | Translation | Translate the transcript into seven languages with the on-device LLM or an AI service; timestamps and speakers are kept, and translated captions can be shared |
@@ -41,6 +41,7 @@ Models are not bundled; download them under **Settings → Models** (downloads r
 | --- | --- | --- |
 | Transcription (Japanese) | ReazonSpeech v2, int8 | 160 MB |
 | Transcription (Japanese, meetings and lectures) | ReazonSpeech v2, fp32: fewer errors on distant or reverberant speech, about 1.7× the compute | 614 MB |
+| Transcription (Japanese, after recording) | Haas-ja v1.0 (community ONNX conversion, int8/4-bit): more accurate kanji, kana and punctuation, about 3.5× the compute of ReazonSpeech fp32 | 480 MB |
 | Transcription (ja/en/zh/ko/yue) | SenseVoice Small, int8; language detected per utterance or fixed | 239 MB |
 | Speech detection (required) | Silero VAD | 2 MB |
 | Speakers | 3D-Speaker CAM++ | 28 MB |

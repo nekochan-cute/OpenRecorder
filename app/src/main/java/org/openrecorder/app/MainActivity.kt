@@ -141,7 +141,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     val options by vm.options.collectAsStateWithLifecycle()
                     val ai by vm.ai.collectAsStateWithLifecycle()
                     vm.modelsVersion.collectAsStateWithLifecycle().value
-                    val speech = vm.models.active(org.openrecorder.app.ai.ModelKind.Speech)
+                    val speech = vm.models.active(org.openrecorder.app.ai.SpeechUse.File)
                     val modelsLabel = listOfNotNull(speech?.title, vm.models.active(org.openrecorder.app.ai.ModelKind.Llm)?.title).joinToString("・").ifBlank { "未ダウンロード" }
                     SettingsScreen(options, inputDevices(context), vm.speechReady(), modelsLabel, ai, BuildConfig.VERSION_NAME,
                         SettingsActions(back = ::back, options = vm::setOptions, models = { go("models") }, ai = { go("ai") }, licenses = { go("licenses") },
@@ -160,9 +160,10 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     val rows = (org.openrecorder.app.ai.ModelCatalog.all + org.openrecorder.app.ai.ModelCatalog.customLlm).map { spec ->
                         ModelRow(spec, vm.models.installed(spec), vm.models.active(spec.kind)?.id == spec.id, downloads[spec.id])
                     }
-                    ModelsScreen(rows, org.openrecorder.app.ai.LocalLlm.supported, vm.models.senseVoiceLanguage, ModelActions(back = ::back, download = vm::download,
+                    val speech = org.openrecorder.app.ai.SpeechUse.entries.associateWith { vm.models.active(it) }
+                    ModelsScreen(rows, speech, org.openrecorder.app.ai.LocalLlm.supported, vm.models.senseVoiceLanguage, ModelActions(back = ::back, download = vm::download,
                         cancel = vm::cancelDownload, delete = vm::deleteModel, choose = vm::chooseModel, importLlm = { importLlm.launch(arrayOf("*/*")) },
-                        senseVoiceLanguage = vm::chooseSenseVoiceLanguage))
+                        senseVoiceLanguage = vm::chooseSenseVoiceLanguage, chooseSpeech = vm::chooseSpeechModel))
                 }
             }
         }

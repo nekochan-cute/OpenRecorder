@@ -30,6 +30,7 @@ No model weights are included in the APK. These are downloaded from Hugging Face
 | Model | License | Source |
 | --- | --- | --- |
 | ReazonSpeech v2 (k2) | Apache-2.0 | https://huggingface.co/reazon-research/reazonspeech-k2-v2 (via csukuangfj/reazonspeech-k2-v2) |
+| Haas-ja-v1.0 | Apache-2.0 | https://huggingface.co/third-intelligence/Haas-ja-v1.0 (unofficial ONNX conversion: oboroge0/Haas-ja-v1.0-onnx-quantized, revision 7f5ab0a) |
 | SenseVoice Small | FunASR Model License | https://github.com/FunAudioLLM/SenseVoice (via csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17) |
 | Silero VAD | MIT | https://github.com/snakers4/silero-vad (via csukuangfj/vad) |
 | 3D-Speaker CAM++ | Apache-2.0 | https://github.com/modelscope/3D-Speaker (via csukuangfj/speaker-embedding-models) |

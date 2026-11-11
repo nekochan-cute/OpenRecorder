@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * On-device speech with sherpa-onnx: audio is brought to a steady level ([SpeechLeveler]), Silero VAD cuts speech into
- * utterances, an offline recognizer (ReazonSpeech or SenseVoice) transcribes each one, and a speaker-embedding model
+ * utterances, an offline recognizer (ReazonSpeech, Haas or SenseVoice) transcribes each one, and a speaker-embedding model
  * labels who spoke.
  */
 class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : AutoCloseable {
@@ -34,11 +34,16 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
             ModelCatalog.reazon.id, ModelCatalog.reazonFp32.id -> OfflineModelConfig(
                 transducer = OfflineTransducerModelConfig(store.file(speech, "encoder.onnx").path, store.file(speech, "decoder.onnx").path, store.file(speech, "joiner.onnx").path),
                 tokens = store.file(speech, "tokens.txt").path, numThreads = 2, modelType = "transducer")
+            ModelCatalog.haas.id -> OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(store.file(speech, "encoder.onnx").path, store.file(speech, "decoder.onnx").path, store.file(speech, "joiner.onnx").path),
+                tokens = store.file(speech, "tokens.txt").path, numThreads = 2, modelType = "nemo_transducer")
             else -> OfflineModelConfig(
                 senseVoice = OfflineSenseVoiceModelConfig(model = store.file(speech, "model.onnx").path, language = store.senseVoiceLanguage, useInverseTextNormalization = true),
                 tokens = store.file(speech, "tokens.txt").path, numThreads = 2)
         }
-        recognizer = OfflineRecognizer(null, OfflineRecognizerConfig(featConfig = FeatureConfig(sampleRate = RATE, featureDim = 80), modelConfig = model))
+        // Haas takes 128 mel bins (sherpa-onnx also reads this from its metadata); the others take 80.
+        val features = FeatureConfig(sampleRate = RATE, featureDim = if (speech.id == ModelCatalog.haas.id) 128 else 80)
+        recognizer = OfflineRecognizer(null, OfflineRecognizerConfig(featConfig = features, modelConfig = model))
         extractor = if (speakers && store.installed(ModelCatalog.speaker))
             SpeakerEmbeddingExtractor(null, SpeakerEmbeddingExtractorConfig(model = store.file(ModelCatalog.speaker, "speaker.onnx").path, numThreads = 1))
         else null
@@ -103,10 +108,10 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
         /** Longest utterance (20 s), plus the silence that ends it and [ONSET]. */
         private const val RECENT = RATE * 24
         fun ready(store: ModelStore) = store.installed(ModelCatalog.vad) && store.active(ModelKind.Speech) != null
-        fun open(context: Context, speakers: Boolean): SpeechEngine {
+        fun open(context: Context, use: SpeechUse, speakers: Boolean): SpeechEngine {
             val store = ModelStore(context)
             check(ready(store)) { "文字起こしモデルと発話検出モデルをダウンロードしてください" }
-            return SpeechEngine(store, store.active(ModelKind.Speech)!!, speakers)
+            return SpeechEngine(store, store.active(use)!!, speakers)
         }
     }
 }
@@ -114,7 +119,7 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
 object Speech {
     /** Transcribes a WAV file; speakers are labelled when the speaker model is installed. */
     suspend fun transcribe(context: Context, wav: File, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
-        SpeechEngine.open(context, speakers = true).use { engine ->
+        SpeechEngine.open(context, SpeechUse.File, speakers = true).use { engine ->
             val splitter = SpeechEngine.Splitter(engine.newVad())
             val leveler = SpeechLeveler(SpeechEngine.RATE)
             val speakers = SpeakerClusters()
@@ -153,7 +158,7 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
     init {
         scope.launch(Dispatchers.Default) {
             try {
-                SpeechEngine.open(context, speakers = true).use { engine ->
+                SpeechEngine.open(context, SpeechUse.Live, speakers = true).use { engine ->
                     val splitter = SpeechEngine.Splitter(engine.newVad())
                     val resampler = Resampler(rate, SpeechEngine.RATE)
                     val leveler = SpeechLeveler(SpeechEngine.RATE)

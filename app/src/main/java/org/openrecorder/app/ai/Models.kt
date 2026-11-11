@@ -6,16 +6,22 @@ import java.io.File
 
 enum class ModelKind { Speech, Vad, Speaker, Llm }
 
+/** What a speech model is used for: captions while recording, or transcribing a saved recording. */
+enum class SpeechUse(val label: String) { Live("録音中の字幕"), File("録音後の文字起こし") }
+
 data class ModelFile(val name: String, val url: String, val size: Long)
 
 data class ModelSpec(val id: String, val kind: ModelKind, val title: String, val detail: String, val license: String, val files: List<ModelFile>) {
     val size get() = files.sumOf { it.size }
 }
 
-private fun hf(repo: String, path: String, size: Long, name: String = path.substringAfterLast('/')) =
-    ModelFile(name, "https://huggingface.co/$repo/resolve/main/$path", size)
+private fun hf(repo: String, path: String, size: Long, name: String = path.substringAfterLast('/'), revision: String = "main") =
+    ModelFile(name, "https://huggingface.co/$repo/resolve/$revision/$path", size)
 
-/** Models the app can download. All are published on Hugging Face by their authors or the sherpa-onnx / LiteRT projects. */
+private const val HAAS = "oboroge0/Haas-ja-v1.0-onnx-quantized"
+private const val HAAS_REVISION = "7f5ab0a4b1bf39db78afd6691eeecbc4f9d42e39"
+
+/** Models the app can download, from Hugging Face: by their authors, the sherpa-onnx / LiteRT projects, or (Haas) a pinned community conversion. */
 object ModelCatalog {
     val reazon = ModelSpec("reazonspeech-k2-v2", ModelKind.Speech, "ReazonSpeech v2", "日本語・標準", "Apache-2.0", listOf(
         hf("csukuangfj/reazonspeech-k2-v2", "encoder-epoch-99-avg-1.int8.onnx", 154_670_139, "encoder.onnx"),
@@ -28,6 +34,17 @@ object ModelCatalog {
         hf("csukuangfj/reazonspeech-k2-v2", "decoder-epoch-99-avg-1.onnx", 11_767_836, "decoder.onnx"),
         hf("csukuangfj/reazonspeech-k2-v2", "joiner-epoch-99-avg-1.onnx", 10_720_115, "joiner.onnx"),
         hf("csukuangfj/reazonspeech-k2-v2", "tokens.txt", 45_754)))
+    /**
+     * Haas-ja-v1.0 (Third Intelligence), in a community ONNX conversion quantized to int8/4-bit, pinned to the tested
+     * revision. Writes kanji, kana and punctuation more accurately than ReazonSpeech; about 3.5× the compute of its fp32
+     * version. The encoder finds its weights in encoder.data next to it, so that name must stay.
+     */
+    val haas = ModelSpec("haas-ja-v1.0", ModelKind.Speech, "Haas-ja v1.0", "日本語・漢字や句読点が正確・重め（録音後向け）", "Apache-2.0", listOf(
+        hf(HAAS, "encoder.quantized.onnx", 42_261_252, "encoder.onnx", HAAS_REVISION),
+        hf(HAAS, "encoder.data", 410_744_064, revision = HAAS_REVISION),
+        hf(HAAS, "decoder.onnx", 15_661_602, revision = HAAS_REVISION),
+        hf(HAAS, "joiner.onnx", 12_158_641, revision = HAAS_REVISION),
+        hf(HAAS, "tokens.txt", 28_704, revision = HAAS_REVISION)))
     val senseVoice = ModelSpec("sense-voice-2024-07-17", ModelKind.Speech, "SenseVoice Small", "日本語・英語・中国語・韓国語・広東語", "FunASR Model License", listOf(
         hf("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", "model.int8.onnx", 239_233_841, "model.onnx"),
         hf("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", "tokens.txt", 315_894)))
@@ -42,7 +59,7 @@ object ModelCatalog {
     /** A .litertlm file the user picked; not downloadable. */
     val customLlm = ModelSpec("custom-llm", ModelKind.Llm, "自分で追加したモデル", ".litertlm", "", listOf(ModelFile("model.litertlm", "", 0)))
 
-    val all = listOf(reazon, reazonFp32, senseVoice, vad, speaker, gemma, swallow)
+    val all = listOf(reazon, reazonFp32, haas, senseVoice, vad, speaker, gemma, swallow)
     fun byId(id: String) = (all + customLlm).firstOrNull { it.id == id }
 }
 
@@ -63,6 +80,11 @@ class ModelStore(private val context: Context) {
         return all.firstOrNull { it.id == prefs.getString(kind.name, null) } ?: all.firstOrNull()
     }
     fun choose(spec: ModelSpec) { prefs.edit().putString(spec.kind.name, spec.id).apply() }
+
+    /** The speech model chosen for [use] if installed, else the one chosen before captions and files had their own. */
+    fun active(use: SpeechUse): ModelSpec? =
+        installed(ModelKind.Speech).firstOrNull { it.id == prefs.getString("${ModelKind.Speech.name}.${use.name}", null) } ?: active(ModelKind.Speech)
+    fun choose(use: SpeechUse, spec: ModelSpec) { prefs.edit().putString("${ModelKind.Speech.name}.${use.name}", spec.id).apply() }
 
     /** Language SenseVoice is told to expect: "auto" lets it detect each utterance, else ja / en / zh / ko / yue. */
     var senseVoiceLanguage: String

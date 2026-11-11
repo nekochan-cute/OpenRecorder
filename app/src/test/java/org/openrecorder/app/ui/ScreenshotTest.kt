@@ -97,11 +97,12 @@ class ScreenshotTest {
             transcriptionProvider = Provider.Groq, transcriptionModel = "whisper-large-v3-turbo"), AiActions())
     }
     @Test fun models() = snap("12-models") {
-        val store = listOf(ModelCatalog.reazon to true, ModelCatalog.reazonFp32 to false, ModelCatalog.senseVoice to true, ModelCatalog.vad to true,
-            ModelCatalog.speaker to true, ModelCatalog.gemma to false, ModelCatalog.swallow to true)
+        val store = listOf(ModelCatalog.reazon to true, ModelCatalog.reazonFp32 to false, ModelCatalog.haas to true, ModelCatalog.senseVoice to true,
+            ModelCatalog.vad to true, ModelCatalog.speaker to true, ModelCatalog.gemma to false, ModelCatalog.swallow to true)
+        val speech = mapOf(org.openrecorder.app.ai.SpeechUse.Live to ModelCatalog.reazon, org.openrecorder.app.ai.SpeechUse.File to ModelCatalog.haas)
         ModelsScreen(store.map { (spec, installed) ->
-            ModelRow(spec, installed, spec == ModelCatalog.senseVoice || spec == ModelCatalog.swallow, if (spec == ModelCatalog.gemma) org.openrecorder.app.ai.DownloadState(0.42f) else null)
-        }, true, "ja", ModelActions())
+            ModelRow(spec, installed, spec == ModelCatalog.swallow, if (spec == ModelCatalog.gemma) org.openrecorder.app.ai.DownloadState(0.42f) else null)
+        }, speech, true, "ja", ModelActions())
     }
     @Test fun translated() = snap("13-detail-translated") {
         val english = listOf("Today we'll talk about the launch schedule and budget for the new product", "We are aiming for the end of next month",
