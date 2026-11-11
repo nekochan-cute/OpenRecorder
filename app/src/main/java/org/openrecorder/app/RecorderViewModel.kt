@@ -71,16 +71,17 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         options.value = o; prefs.save(o)
         player.setPlaybackSpeed(o.playbackSpeed); player.skipSilenceEnabled = o.skipSilence
     }
+    fun setMode(mode: org.openrecorder.app.data.RecordingMode) = setOptions(options.value.copy(mode = mode))
     fun start() {
         player.pause()
-        val o = options.value
+        val o = options.value; val mic = o.mic
         // A remembered microphone that is no longer connected falls back to the default input.
         val device = o.device.takeIf { id -> app.getSystemService(android.media.AudioManager::class.java)
             .getDevices(android.media.AudioManager.GET_DEVICES_INPUTS).any { it.id == id } } ?: 0
         try {
             ContextCompat.startForegroundService(app,Intent(app,RecordingService::class.java).setAction(RecordingService.START)
-                .putExtra("rate",o.sampleRate).putExtra("channels",o.channels).putExtra("voice",o.voice).putExtra("noise",o.noise)
-                .putExtra("format",o.format).putExtra("direction",o.direction).putExtra("zoom",o.zoom)
+                .putExtra("rate",o.sampleRate).putExtra("channels",if(mic.stereo) 2 else 1).putExtra("voice",mic.voice).putExtra("noise",mic.noise)
+                .putExtra("format",o.format).putExtra("direction",mic.direction).putExtra("zoom",mic.zoom).putExtra("mode",o.mode.name)
                 .putExtra("device",device).putExtra("live",o.live && speechReady()))
         } catch(e: Exception) { message.value = "録音を開始できません" }
     }

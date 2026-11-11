@@ -30,16 +30,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.openrecorder.app.audio.CaptureState
 import org.openrecorder.app.core.Recording
+import org.openrecorder.app.data.RecordingMode
 
 class LibraryActions(
     val open: (String) -> Unit = {}, val record: () -> Unit = {}, val showRecording: () -> Unit = {},
     val import: () -> Unit = {}, val trash: () -> Unit = {}, val settings: () -> Unit = {},
     val favorite: (String) -> Unit = {}, val rename: (String, String) -> Unit = { _, _ -> }, val move: (String, String) -> Unit = { _, _ -> },
-    val delete: (List<String>) -> Unit = {}, val merge: (List<String>) -> Unit = {},
+    val delete: (List<String>) -> Unit = {}, val merge: (List<String>) -> Unit = {}, val mode: (RecordingMode) -> Unit = {},
 )
 
+/** [recordingMode]: the mode the next recording uses, chosen next to the record button. */
 @Composable
-fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: LibraryActions) {
+fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, recordingMode: RecordingMode, actions: LibraryActions) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("") } // "" all, "★" favourites, otherwise a folder
@@ -77,7 +79,7 @@ fun LibraryScreen(recordings: List<Recording>, capture: CaptureState, actions: L
                 })
             }
         },
-        bottomBar = { RecordBar(capture, actions) },
+        bottomBar = { RecordBar(capture, recordingMode, actions) },
     ) { padding ->
         Column(Modifier.padding(padding).readable()) {
             if (folders.isNotEmpty() || favorites) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
@@ -169,7 +171,8 @@ private fun RecordingRow(r: Recording, actions: LibraryActions, rename: () -> Un
 }
 
 @Composable
-private fun RecordBar(capture: CaptureState, actions: LibraryActions) {
+private fun RecordBar(capture: CaptureState, mode: RecordingMode, actions: LibraryActions) {
+    var choosing by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(top = 8.dp, bottom = 20.dp), contentAlignment = Alignment.Center) {
         if (capture.id != null) {
             Button(actions.showRecording, shape = CircleShape, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)) {
@@ -177,11 +180,13 @@ private fun RecordBar(capture: CaptureState, actions: LibraryActions) {
                 Spacer(Modifier.width(10.dp))
                 Text("${if (capture.paused) "一時停止中" else "録音中"}  ${clock(capture.durationMs)}", style = MaterialTheme.typography.titleMedium)
             }
-        } else {
+        } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AssistChip({ choosing = true }, { Text("録音モード：${mode.label}") }, leadingIcon = { Icon(Icons.Rounded.GraphicEq, null, Modifier.size(18.dp)) })
             LargeFloatingActionButton(actions.record, shape = CircleShape, containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary) { Icon(Icons.Rounded.Mic, "録音", Modifier.size(36.dp)) }
         }
     }
+    if (choosing) Choice("録音モード", recordingModes, mode, { choosing = false }) { actions.mode(it); choosing = false }
 }
 
 @Composable

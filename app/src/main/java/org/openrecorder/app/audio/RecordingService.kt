@@ -15,8 +15,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.openrecorder.app.*
 import org.openrecorder.app.core.Levels
+import org.openrecorder.app.core.Scene
+import org.openrecorder.app.core.SceneDetector
 import org.openrecorder.app.core.Segment
 import org.openrecorder.app.ai.LiveTranscriber
+import org.openrecorder.app.data.RecordingMode
 import java.io.RandomAccessFile
 
 /**
@@ -24,11 +27,20 @@ import java.io.RandomAccessFile
  * [live]: captions so far with speakers; [partial]: provisional text of the utterance being spoken;
  * [speaking] while the current utterance is still open.
  * [directional]: null when no direction was requested, else whether the device accepted it.
+ * [mode]: the recording mode, and in the automatic mode what it has recognised so far.
  */
 data class CaptureState(val id: String? = null, val paused: Boolean = false, val durationMs: Long = 0,
     val levels: List<Float> = emptyList(), val error: String? = null, val live: List<Segment> = emptyList(), val partial: String = "", val speaking: Boolean = false,
     val liveStatus: String = "", val input: String = "", val noiseReduction: Boolean = false, val directional: Boolean? = null,
-    val saving: Boolean = false, val silenced: Boolean = false)
+    val saving: Boolean = false, val silenced: Boolean = false, val mode: String = "")
+
+/** The mode whose microphone settings suit a situation the automatic mode recognised. */
+fun Scene.mode() = when (this) {
+    Scene.Conference -> RecordingMode.Conference
+    Scene.Meeting -> RecordingMode.Meeting
+    Scene.Memo -> RecordingMode.Memo
+    Scene.Ambient -> RecordingMode.Music
+}
 
 /** Holds the SCO link for a Bluetooth microphone and restores the previous audio mode on close. */
 class BluetoothRoute private constructor(private val manager: AudioManager, private val previousMode: Int) : AutoCloseable {
@@ -149,13 +161,21 @@ class RecordingService : Service() {
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
                 suppressor = NoiseSuppressor.create(audio.audioSessionId)?.apply { enabled = true }
             }
+            val mode = RecordingMode.entries.firstOrNull { it.name == intent.getStringExtra("mode") } ?: RecordingMode.Custom
+            // The automatic mode decides from the first seconds; until then it records with its own settings.
+            val detector = if(mode == RecordingMode.Auto) SceneDetector(rate) else null
+            if(detector != null && suppressor == null && NoiseSuppressor.isAvailable())
+                suppressor = NoiseSuppressor.create(audio.audioSessionId)?.apply { enabled = false }
+            val mono = FloatArray(rate / 50)
+            var scene: Scene? = null
             val r = repo.create(rate,channels,format); id = r.id
             sink = when(format) {
                 RecordFormat.Wav -> WavSink(repo.file(r), rate, channels)
                 RecordFormat.Aac -> ThreadedSink(AdtsSink(repo.file(r), rate, channels))
                 RecordFormat.Mp3 -> ThreadedSink(Mp3Sink(repo.file(r), rate, channels))
             }
-            mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true, directional = directional)
+            mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true, directional = directional,
+                mode = if(detector != null) "${mode.label}（判定中）" else mode.label)
             recordingCallback = object : AudioManager.AudioRecordingCallback() {
                 override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
                     val silenced = configs.any { it.clientAudioSessionId == audio.audioSessionId && it.isClientSilenced }
@@ -195,6 +215,18 @@ class RecordingService : Service() {
                 }
                 sink.write(buffer, n)
                 frames += n / channels
+                if(detector != null && scene == null) {
+                    val count = n / channels
+                    for(f in 0 until count) { var s = 0; for(c in 0 until channels) s += buffer[f * channels + c]; mono[f] = s / (channels * 32768f) }
+                    scene = detector.feed(mono, count)?.also { found ->
+                        // Only the direction and noise suppression can change while recording.
+                        val mic = found.mode().mic!!
+                        val accepted = if(mic.direction == MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED) null
+                            else audio.setPreferredMicrophoneDirection(mic.direction) && audio.setPreferredMicrophoneFieldDimension(mic.zoom)
+                        suppressor?.enabled = mic.noise
+                        mutableState.update { it.copy(mode = "${mode.label}：${found.mode().label}", noiseReduction = suppressor?.enabled == true, directional = accepted) }
+                    }
+                }
                 live?.offer(buffer.copyOf(n))
                 live?.problem?.let { problem -> if(mutableState.value.liveStatus.isEmpty()) mutableState.update { it.copy(liveStatus = problem) } }
                 val duration = frames * 1000 / rate

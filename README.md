@@ -16,7 +16,7 @@ AI services (OpenRouter, Google AI Studio, OpenAI, Groq, OpenAI-compatible APIs)
 
 | Area | |
 | --- | --- |
-| Recording | Pause and resume, screen-off recording, AAC (M4A), MP3 or WAV, 16 or 48 kHz, mono or stereo, built-in / wired / USB / Bluetooth mics, directional capture where supported, crash recovery |
+| Recording | Pause and resume, screen-off recording, AAC (M4A), MP3 or WAV, 16 or 48 kHz, mono or stereo, built-in / wired / USB / Bluetooth mics, directional capture where supported, recording modes (including automatic), crash recovery |
 | Playback | Waveform with marks, drag to scrub, ±10 s, 0.5×–3× speed, silence skipping |
 | Marks | Notes and photos at a moment, tap to jump |
 | Editing | Keep or remove a range, or join recordings; originals are kept |
