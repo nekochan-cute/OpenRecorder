@@ -10,10 +10,10 @@ plugins {
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
-// sherpa-onnx is published as an AAR by its author on Hugging Face, not on Maven Central.
+// sherpa-onnx is published as an AAR by its author on GitHub, not on Maven Central.
 // It is downloaded once and verified against a pinned SHA-256 before use.
-val sherpaVersion = "1.12.21"
-val sherpaSha256 = "6d1bf9a2ede218d9f33115f494058b83ae5c2af8a8275e64353c3de8c83a2603"
+val sherpaVersion = "2.0.1"
+val sherpaSha256 = "07e042d97f3a6bd5b7fe74d4eef0513dc01a714b16c15a903250095aba43a575"
 val sherpaAar = layout.buildDirectory.file("deps/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
 val downloadSherpa by tasks.registering {
     val target = sherpaAar
@@ -24,7 +24,7 @@ val downloadSherpa by tasks.registering {
         if (file.isFile && sha(file) == sherpaSha256) return@doLast
         file.parentFile.mkdirs()
         val temp = File(file.path + ".part")
-        URI("https://huggingface.co/csukuangfj/sherpa-onnx-libs/resolve/main/android/aar/$sherpaVersion/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
+        URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
             .toURL().openStream().use { input -> temp.outputStream().use { input.copyTo(it) } }
         check(sha(temp) == sherpaSha256) { "sherpa-onnx AAR checksum mismatch" }
         check(temp.renameTo(file))

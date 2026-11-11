@@ -61,7 +61,7 @@ Each successful [CI run](https://github.com/nekochan-cute/OpenRecorder/actions/w
 ## Building
 
 JDK 17, Android SDK platform 35 and build tools 35.0.0. The first build downloads the sherpa-onnx AAR from
-Hugging Face and checks its SHA-256 (`app/build.gradle.kts`). Android 10 or later.
+its GitHub releases and checks its SHA-256 (`app/build.gradle.kts`). Android 10 or later.
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
