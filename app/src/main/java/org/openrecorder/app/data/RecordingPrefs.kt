@@ -12,16 +12,17 @@ private const val FRONT = MicrophoneDirection.MIC_DIRECTION_AWAY_FROM_USER
 private const val USER = MicrophoneDirection.MIC_DIRECTION_TOWARDS_USER
 
 /**
- * Recording situations, each with its microphone settings and the [onset] (seconds of audio kept before each detected
- * utterance) that transcribed it best. [Auto] starts with its own settings and, once it has recognised the situation
- * (within 30 s), switches the direction, noise suppression and onset to that situation's (the audio source and
- * the channel count cannot change during a recording). [Custom] uses the settings the user set one by one.
+ * Recording situations, each with its microphone settings and the transcription settings that measured best for it:
+ * [onset] (seconds of audio kept before each detected utterance) and the VAD [threshold]. [Auto] starts with its own
+ * settings and, once it has recognised the situation (within 30 s), switches the direction, noise suppression and onset
+ * to that situation's (the audio source and the channel count cannot change during a recording). [Custom] uses the
+ * settings the user set one by one.
  */
-enum class RecordingMode(val label: String, val detail: String, val mic: MicSettings?, val onset: Float = 0.5f) {
+enum class RecordingMode(val label: String, val detail: String, val mic: MicSettings?, val onset: Float = 0.5f, val threshold: Float = 0.5f) {
     Auto("自動", "始めの音から判断（最長30秒）", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Conference("会議", "大人数・広い部屋", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Meeting("ミーティング", "少人数・机を囲む", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
-    Lecture("講義・セミナー", "前方の話者", MicSettings(FRONT, 0.5f, noise = false, voice = true, stereo = false)),
+    Lecture("講義・セミナー", "前方の話者", MicSettings(FRONT, 0.5f, noise = false, voice = true, stereo = false), threshold = 0.35f),
     Interview("インタビュー", "向かいの相手", MicSettings(FRONT, -0.5f, noise = false, voice = true, stereo = false)),
     Memo("音声メモ", "自分の声", MicSettings(USER, 0.5f, noise = true, voice = true, stereo = false)),
     Music("音楽・環境音", "ステレオでそのまま", MicSettings(ANY, 0.5f, noise = false, voice = false, stereo = true), onset = 0.8f),

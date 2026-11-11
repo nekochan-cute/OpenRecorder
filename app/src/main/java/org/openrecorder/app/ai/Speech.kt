@@ -50,7 +50,7 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
         else null
     }
 
-    fun newVad() = Vad(null, VadModelConfig(sileroVadModelConfig = SileroVadModelConfig(model = vadModel, threshold = 0.5f,
+    fun newVad(mode: RecordingMode) = Vad(null, VadModelConfig(sileroVadModelConfig = SileroVadModelConfig(model = vadModel, threshold = mode.threshold,
         minSilenceDuration = 0.35f, minSpeechDuration = 0.25f, windowSize = WINDOW, maxSpeechDuration = 20f), sampleRate = RATE, numThreads = 1))
 
     fun recognize(samples: FloatArray): String {
@@ -121,7 +121,7 @@ object Speech {
     /** Transcribes a WAV file recorded in [mode]; speakers are labelled when the speaker model is installed. */
     suspend fun transcribe(context: Context, wav: File, mode: RecordingMode, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
         SpeechEngine.open(context, SpeechUse.File, speakers = true).use { engine ->
-            val splitter = SpeechEngine.Splitter(engine.newVad(), SpeechEngine.onset(mode))
+            val splitter = SpeechEngine.Splitter(engine.newVad(mode), SpeechEngine.onset(mode))
             val leveler = SpeechLeveler(SpeechEngine.RATE)
             val speakers = SpeakerClusters()
             val found = mutableListOf<Segment>()
@@ -162,7 +162,8 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
         scope.launch(Dispatchers.Default) {
             try {
                 SpeechEngine.open(context, SpeechUse.Live, speakers = true).use { engine ->
-                    val splitter = SpeechEngine.Splitter(engine.newVad(), SpeechEngine.onset(mode))
+                    // The VAD keeps the starting mode's threshold; the automatic mode only decides on situations with the same one.
+                    val splitter = SpeechEngine.Splitter(engine.newVad(mode), SpeechEngine.onset(mode))
                     val resampler = Resampler(rate, SpeechEngine.RATE)
                     val leveler = SpeechLeveler(SpeechEngine.RATE)
                     val speakers = SpeakerClusters()
