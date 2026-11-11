@@ -13,12 +13,12 @@ private const val USER = MicrophoneDirection.MIC_DIRECTION_TOWARDS_USER
 
 /**
  * Recording situations, each with its microphone settings and the [onset] (seconds of audio kept before each detected
- * utterance) that transcribed it best. [Auto] starts with its own settings and, once it has heard a few seconds,
- * switches the direction, noise suppression and onset to those of the situation it recognised (the audio source and
+ * utterance) that transcribed it best. [Auto] starts with its own settings and, once it has recognised the situation
+ * (within 30 s), switches the direction, noise suppression and onset to that situation's (the audio source and
  * the channel count cannot change during a recording). [Custom] uses the settings the user set one by one.
  */
 enum class RecordingMode(val label: String, val detail: String, val mic: MicSettings?, val onset: Float = 0.5f) {
-    Auto("自動", "最初の数秒の音から判断", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
+    Auto("自動", "始めの音から判断（最長30秒）", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Conference("会議", "大人数・広い部屋", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Meeting("ミーティング", "少人数・机を囲む", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Lecture("講義・セミナー", "前方の話者", MicSettings(FRONT, 0.5f, noise = false, voice = true, stereo = false)),
