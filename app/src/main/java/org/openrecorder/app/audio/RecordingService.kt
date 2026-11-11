@@ -128,7 +128,7 @@ class RecordingService : Service() {
         var recorder: AudioRecord? = null; var suppressor: NoiseSuppressor? = null
         var recordingCallback: AudioManager.AudioRecordingCallback? = null
         var id: String? = null; var live: LiveTranscriber? = null; var sink: PcmSink? = null
-        var frames = 0L; var rate = 48000
+        var frames = 0L; var rate = 48000; var recordedMode = ""
         val allLevels = java.io.ByteArrayOutputStream()
         val audioManager = getSystemService(AudioManager::class.java)
         var bluetooth: BluetoothRoute? = null
@@ -161,7 +161,8 @@ class RecordingService : Service() {
             if(intent.getBooleanExtra("noise",false) && NoiseSuppressor.isAvailable()) {
                 suppressor = NoiseSuppressor.create(audio.audioSessionId)?.apply { enabled = true }
             }
-            val mode = RecordingMode.entries.firstOrNull { it.name == intent.getStringExtra("mode") } ?: RecordingMode.Custom
+            val mode = RecordingMode.of(intent.getStringExtra("mode"))
+            recordedMode = mode.name
             // The automatic mode decides from the first seconds; until then it records with its own settings.
             val detector = if(mode == RecordingMode.Auto) SceneDetector(rate) else null
             if(detector != null && suppressor == null && NoiseSuppressor.isAvailable())
@@ -185,7 +186,7 @@ class RecordingService : Service() {
             audio.registerAudioRecordingCallback(mainExecutor,recordingCallback)
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"OpenRecorder:capture").apply { acquire() }
             if(intent.getBooleanExtra("live",false)) {
-                live = try { LiveTranscriber(this, rate, channels, scope) { segments, partial, speaking ->
+                live = try { LiveTranscriber(this, rate, channels, scope, mode) { segments, partial, speaking ->
                     mutableState.update { if(it.id == r.id) it.copy(live = segments, partial = partial, speaking = speaking) else it } } }
                 catch(e: Throwable) { mutableState.update { it.copy(liveStatus = "文字起こしを開始できませんでした") }; null }
             }
@@ -219,8 +220,10 @@ class RecordingService : Service() {
                     val count = n / channels
                     for(f in 0 until count) { var s = 0; for(c in 0 until channels) s += buffer[f * channels + c]; mono[f] = s / (channels * 32768f) }
                     scene = detector.feed(mono, count)?.also { found ->
-                        // Only the direction and noise suppression can change while recording.
+                        // Only the direction, noise suppression and the transcription's onset can change while recording.
                         val mic = found.mode().mic!!
+                        recordedMode = found.mode().name
+                        live?.mode = found.mode()
                         val accepted = if(mic.direction == MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED) null
                             else audio.setPreferredMicrophoneDirection(mic.direction) && audio.setPreferredMicrophoneFieldDimension(mic.zoom)
                         suppressor?.enabled = mic.noise
@@ -248,7 +251,7 @@ class RecordingService : Service() {
             id?.let { key ->
                 runCatching {
                     closed.getOrThrow()
-                    repo.complete(key, frames * 1000 / rate, liveSegments, allLevels.toByteArray())
+                    repo.complete(key, frames * 1000 / rate, liveSegments, allLevels.toByteArray(), recordedMode)
                 }.onFailure { mutableState.update { it.copy(error = "保存処理が中断されました。次回起動時に回収します。") } }
                 repo.endCapture(key)
             }

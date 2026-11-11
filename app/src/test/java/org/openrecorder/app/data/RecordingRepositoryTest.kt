@@ -58,4 +58,16 @@ class RecordingRepositoryTest {
         assertFalse(after.unfinished)
         assertEquals(100L, after.durationMs)
     }
+
+    @Test fun theRecordingModeIsKeptAndMergedOnlyWhenShared() {
+        val repo = RecordingRepository(context)
+        fun recorded(mode: String) = repo.create(16000, 1, RecordFormat.Wav).also {
+            repo.file(it).appendBytes(audio); repo.complete(it.id, 100, null, null, mode); repo.endCapture(it.id)
+        }
+        val music = recorded("Music"); val music2 = recorded("Music"); val memo = recorded("Memo")
+
+        assertEquals("Music", RecordingRepository(context).get(music.id)!!.mode)
+        assertEquals("Music", repo.merge(listOf(music.id, music2.id)).mode)
+        assertEquals("", repo.merge(listOf(music.id, memo.id)).mode)
+    }
 }

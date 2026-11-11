@@ -12,19 +12,25 @@ private const val FRONT = MicrophoneDirection.MIC_DIRECTION_AWAY_FROM_USER
 private const val USER = MicrophoneDirection.MIC_DIRECTION_TOWARDS_USER
 
 /**
- * Recording situations, each with its microphone settings. [Auto] starts with its own settings and, once it has heard
- * a few seconds, switches the direction and noise suppression to those of the situation it recognised (the audio
- * source and the channel count cannot change during a recording). [Custom] uses the settings the user set one by one.
+ * Recording situations, each with its microphone settings and the [onset] (seconds of audio kept before each detected
+ * utterance) that transcribed it best. [Auto] starts with its own settings and, once it has heard a few seconds,
+ * switches the direction, noise suppression and onset to those of the situation it recognised (the audio source and
+ * the channel count cannot change during a recording). [Custom] uses the settings the user set one by one.
  */
-enum class RecordingMode(val label: String, val detail: String, val mic: MicSettings?) {
+enum class RecordingMode(val label: String, val detail: String, val mic: MicSettings?, val onset: Float = 0.5f) {
     Auto("自動", "最初の数秒の音から判断", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Conference("会議", "大人数・広い部屋", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Meeting("ミーティング", "少人数・机を囲む", MicSettings(ANY, 0.5f, noise = false, voice = true, stereo = false)),
     Lecture("講義・セミナー", "前方の話者", MicSettings(FRONT, 0.5f, noise = false, voice = true, stereo = false)),
     Interview("インタビュー", "向かいの相手", MicSettings(FRONT, -0.5f, noise = false, voice = true, stereo = false)),
     Memo("音声メモ", "自分の声", MicSettings(USER, 0.5f, noise = true, voice = true, stereo = false)),
-    Music("音楽・環境音", "ステレオでそのまま", MicSettings(ANY, 0.5f, noise = false, voice = false, stereo = true)),
-    Custom("カスタム", "設定画面の各項目のとおり", null),
+    Music("音楽・環境音", "ステレオでそのまま", MicSettings(ANY, 0.5f, noise = false, voice = false, stereo = true), onset = 0.8f),
+    Custom("カスタム", "設定画面の各項目のとおり", null);
+
+    companion object {
+        /** The mode with this name; unknown or empty names (imports, older recordings) are [Custom]. */
+        fun of(name: String?) = entries.firstOrNull { it.name == name } ?: Custom
+    }
 }
 
 data class RecordingOptions(
@@ -65,7 +71,7 @@ class RecordingPrefs(context: Context) {
         prefs.getBoolean("voice", false), prefs.getBoolean("noise", false), prefs.getBoolean("live", false),
         prefs.getInt("device", 0), prefs.getInt("direction", MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED), prefs.getFloat("zoom", 0.5f),
         prefs.getFloat("speed", 1f), prefs.getBoolean("skip", false),
-        RecordingMode.entries.firstOrNull { it.name == prefs.getString("mode", null) } ?: RecordingMode.Custom,
+        RecordingMode.of(prefs.getString("mode", null)),
         SummaryDetail.entries.firstOrNull { it.name == prefs.getString("summaryDetail", null) } ?: SummaryDetail.Standard)
 
     fun save(o: RecordingOptions) {

@@ -16,6 +16,7 @@ import com.k2fsa.sherpa.onnx.VadModelConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.openrecorder.app.core.*
+import org.openrecorder.app.data.RecordingMode
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -75,9 +76,9 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
     /**
      * Feeds 16 kHz audio through a VAD in fixed windows and hands out finished utterances. The VAD marks the
      * start of speech a little late and cuts off soft first sounds, so each utterance is extended back by up
-     * to [ONSET] samples, never into the previous utterance.
+     * to [onset] samples, never into the previous utterance.
      */
-    class Splitter(private val vad: Vad) {
+    class Splitter(private val vad: Vad, var onset: Int) {
         private val pending = FloatArray(WINDOW); private var filled = 0
         private val recent = RecentSamples(RECENT)
         private var lastEnd = 0L
@@ -93,7 +94,7 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
         private fun drain(utterance: (Int, FloatArray) -> Unit) {
             while (!vad.empty()) {
                 val s = vad.front(); vad.pop()
-                val (start, samples) = recent.extendBack(s.start.toLong(), s.samples, ONSET, lastEnd)
+                val (start, samples) = recent.extendBack(s.start.toLong(), s.samples, onset, lastEnd)
                 lastEnd = s.start.toLong() + s.samples.size
                 utterance(start.toInt(), samples)
             }
@@ -103,10 +104,10 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
     companion object {
         const val RATE = 16000
         const val WINDOW = 512
-        /** Audio added before each utterance; the provisional live captions use the same pre-roll. */
-        const val ONSET = RATE / 2
-        /** Longest utterance (20 s), plus the silence that ends it and [ONSET]. */
+        /** Longest utterance (20 s), plus the silence that ends it and the longest pre-roll. */
         private const val RECENT = RATE * 24
+        /** Samples added before each utterance in [mode]; the provisional live captions use the same pre-roll. */
+        fun onset(mode: RecordingMode) = (mode.onset * RATE).toInt()
         fun ready(store: ModelStore) = store.installed(ModelCatalog.vad) && store.active(ModelKind.Speech) != null
         fun open(context: Context, use: SpeechUse, speakers: Boolean): SpeechEngine {
             val store = ModelStore(context)
@@ -117,10 +118,10 @@ class SpeechEngine(store: ModelStore, speech: ModelSpec, speakers: Boolean) : Au
 }
 
 object Speech {
-    /** Transcribes a WAV file; speakers are labelled when the speaker model is installed. */
-    suspend fun transcribe(context: Context, wav: File, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
+    /** Transcribes a WAV file recorded in [mode]; speakers are labelled when the speaker model is installed. */
+    suspend fun transcribe(context: Context, wav: File, mode: RecordingMode, progress: (Float) -> Unit): List<Segment> = withContext(Dispatchers.Default) {
         SpeechEngine.open(context, SpeechUse.File, speakers = true).use { engine ->
-            val splitter = SpeechEngine.Splitter(engine.newVad())
+            val splitter = SpeechEngine.Splitter(engine.newVad(), SpeechEngine.onset(mode))
             val leveler = SpeechLeveler(SpeechEngine.RATE)
             val speakers = SpeakerClusters()
             val found = mutableListOf<Segment>()
@@ -145,8 +146,10 @@ object Speech {
  * phone cannot keep up, captions stop and the audio is still saved. While someone is speaking, the open
  * utterance is decoded again every so often and shown as provisional text until its final result is in.
  */
-class LiveTranscriber(context: Context, private val rate: Int, private val channels: Int, scope: CoroutineScope,
+class LiveTranscriber(context: Context, private val rate: Int, private val channels: Int, scope: CoroutineScope, mode: RecordingMode,
                       private val onUpdate: (segments: List<Segment>, partial: String, speaking: Boolean) -> Unit) {
+    /** The situation being recorded; the automatic mode changes it once it has decided. */
+    @Volatile var mode = mode
     private val queue = Channel<ShortArray>(256)
     /** Chunks queued but not yet read; provisional decoding waits while recognition is behind. */
     private val backlog = AtomicInteger()
@@ -159,7 +162,7 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
         scope.launch(Dispatchers.Default) {
             try {
                 SpeechEngine.open(context, SpeechUse.Live, speakers = true).use { engine ->
-                    val splitter = SpeechEngine.Splitter(engine.newVad())
+                    val splitter = SpeechEngine.Splitter(engine.newVad(), SpeechEngine.onset(mode))
                     val resampler = Resampler(rate, SpeechEngine.RATE)
                     val leveler = SpeechLeveler(SpeechEngine.RATE)
                     val speakers = SpeakerClusters()
@@ -184,11 +187,12 @@ class LiveTranscriber(context: Context, private val rate: Int, private val chann
                         val behind = backlog.decrementAndGet()
                         val mono = FloatArray(pcm.size / channels) { f -> var s = 0; for (c in 0 until channels) s += pcm[f * channels + c]; s / channels / 32768f }
                         val samples = resampler.process(mono).also(leveler::process)
+                        splitter.onset = SpeechEngine.onset(mode)
                         splitter.feed(samples, ::take)
                         val speaking = splitter.speaking
                         // The pre-roll keeps the start of speech, which the VAD only recognises a moment later.
                         if (finished) { finished = false; open.clear(); partial = "" } else open.add(samples)
-                        if (!speaking) { open.keepLast(SpeechEngine.ONSET); partial = "" }
+                        if (!speaking) { open.keepLast(splitter.onset); partial = "" }
                         else if (behind <= MAX_BACKLOG && open.size >= MIN_PARTIAL && SystemClock.elapsedRealtime() >= nextPartial) {
                             val started = SystemClock.elapsedRealtime()
                             partial = engine.recognize(open.samples())
