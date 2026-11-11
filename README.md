@@ -63,7 +63,7 @@ under Artifacts; each one downloads as a plain `.apk` file. Most phones need `Op
 ## Building
 
 JDK 17 and the Android SDK (platform 35, build tools 35.0.0). The first build downloads the sherpa-onnx AAR
-from Hugging Face and checks it against a pinned SHA-256 (`app/build.gradle.kts`).
+from its GitHub releases and checks it against a pinned SHA-256 (`app/build.gradle.kts`).
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
