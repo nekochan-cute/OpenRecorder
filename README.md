@@ -23,7 +23,7 @@ AI services are optional: connect OpenRouter, Google AI Studio, OpenAI, Groq or 
 | Library | Folders, favourites, search across titles, transcripts, marks and summaries, trash, import of any format the phone can decode |
 | Transcription | Live captions while recording and transcription of saved audio on the device with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech or Haas for Japanese, SenseVoice for Japanese/English/Chinese/Korean; captions and saved audio can use different models) or with an AI service; edit text, tap a sentence to play from there |
 | Speakers | Speaker separation on the device, live while recording and refined over the whole recording afterwards; rename speakers, fix a sentence's speaker |
-| Summary | Generative summary with an on-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B or TinySwallow 1.5B), extractive summary, or an AI service; automatic title; templates for meetings (decisions, action items), lectures and interviews |
+| Summary | Generative summary with an on-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B or TinySwallow 1.5B), extractive summary, or an AI service; automatic title; templates for meetings (decisions, action items), lectures and interviews; brief, standard or detailed |
 | Translation | Translate the transcript into seven languages with the on-device LLM or an AI service; timestamps and speakers are kept, and translated captions can be shared |
 | Audio clean-up | Noise reduction, voice enhancement and loudness levelling, saved as a new recording |
 | Sharing | Audio as M4A, MP3 or WAV, transcript and translation, SRT or WebVTT captions, summary as Markdown, list of marks |

@@ -42,6 +42,7 @@ import org.openrecorder.app.core.Mark
 import org.openrecorder.app.core.ProcessOptions
 import org.openrecorder.app.core.Recording
 import org.openrecorder.app.core.Segment
+import org.openrecorder.app.core.SummaryDetail
 import java.io.File
 import java.util.Locale
 
@@ -52,6 +53,7 @@ class DetailState(
     /** On-device LLM installed (generative summary, translation). */
     val llm: Boolean = false,
     val folders: List<String> = emptyList(),
+    val summaryDetail: SummaryDetail = SummaryDetail.Standard,
 )
 
 class DetailActions(
@@ -61,7 +63,7 @@ class DetailActions(
     val edit: () -> Unit = {}, val enhance: (ProcessOptions) -> Unit = {}, val share: (String) -> Unit = {},
     val transcribe: (remote: Boolean) -> Unit = {},
     /** engine: "llm" on-device model, "api" AI service, "extract" sentence extraction. */
-    val summarize: (template: String, engine: String) -> Unit = { _, _ -> },
+    val summarize: (template: String, engine: String) -> Unit = { _, _ -> }, val summaryDetail: (SummaryDetail) -> Unit = {},
     val translate: (language: String, remote: Boolean) -> Unit = { _, _ -> }, val clearTranslation: () -> Unit = {},
     val addMark: (Long) -> Unit = {}, val addPhoto: (Long) -> Unit = {}, val editMark: (String, String) -> Unit = { _, _ -> },
     val deleteMark: (String) -> Unit = {}, val openPhoto: (String) -> Unit = {}, val photoFile: (String) -> File? = { null },
@@ -338,9 +340,14 @@ private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript:
         if (state.aiSummary) add("api" to "AIサービスで要約")
     }
     Column(Modifier.fillMaxSize().readable().verticalScroll(rememberScrollState())) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)) {
             templates.forEachIndexed { i, t ->
                 SegmentedButton(template == t, { template = t }, SegmentedButtonDefaults.itemShape(i, templates.size)) { Text(t) }
+            }
+        }
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+            SummaryDetail.entries.forEachIndexed { i, d ->
+                SegmentedButton(state.summaryDetail == d, { actions.summaryDetail(d) }, SegmentedButtonDefaults.itemShape(i, SummaryDetail.entries.size)) { Text(d.label) }
             }
         }
         when {

@@ -150,10 +150,10 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         if(result.isEmpty()) message.value = "音声を認識できませんでした"
     }
     /** Offline extractive summary; also proposes a title from the transcript's keywords. */
-    fun summarizeLocal(id: String, template: String) = task("要約中") {
+    fun summarizeLocal(id: String, template: String, detail: SummaryDetail) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
         require(r.segments.isNotEmpty()) { "先に文字起こしを実行してください" }
-        val result = withContext(Dispatchers.Default) { LocalSummary.summarize(r.segments,template) }
+        val result = withContext(Dispatchers.Default) { LocalSummary.summarize(r.segments,template,detail) }
         repo.update(id) { it.copy(title = result.title.ifBlank { it.title }, summary = result.body) }
     }
     fun process(id: String, options: ProcessOptions, done: (String) -> Unit) = task("音声を処理中") {
@@ -164,9 +164,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         repo.update(id) { it.copy(marks = it.marks.map { m -> if(m.id == markId) m.copy(text = text.trim()) else m }) }
     }
     /** Generative summary with the on-device LLM, in parts for long recordings. */
-    fun summarizeWithLlm(id: String, template: String) = task("要約中") {
+    fun summarizeWithLlm(id: String, template: String, detail: SummaryDetail) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
-        val (title, body) = LocalLlm.use(app) { model -> LlmTasks.summarize(r.segments, template, model) { p -> busy.value = "要約中 ${(p*100).toInt()}%" } }
+        val (title, body) = LocalLlm.use(app) { model -> LlmTasks.summarize(r.segments, template, model, detail) { p -> busy.value = "要約中 ${(p*100).toInt()}%" } }
         repo.update(id) { it.copy(title = title.ifBlank { it.title }, summary = body) }
     }
     /** Translates the transcript sentence by sentence with the on-device LLM or the AI service. */
@@ -183,9 +183,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
         val merged = repo.merge(ids) { p -> busy.value = "結合中 ${(p*100).toInt()}%" }
         withContext(Dispatchers.Main) { done(merged.id) }
     }
-    fun summarize(id: String, template: String) = task("要約中") {
+    fun summarize(id: String, template: String, detail: SummaryDetail) = task("要約中") {
         val r = repo.get(id) ?: error("録音がありません")
-        val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template)
+        val (title, summary) = RemoteAi().summarize(r.segments,app.aiSettings.load(),template,detail)
         repo.update(id) { it.copy(title = title.ifBlank { it.title }, summary = summary) }
     }
     fun updateSegment(id: String, index: Int, text: String, speaker: String) = task("文章を保存中") {

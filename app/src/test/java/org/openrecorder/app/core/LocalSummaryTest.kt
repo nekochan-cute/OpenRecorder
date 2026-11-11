@@ -34,6 +34,16 @@ class LocalSummaryTest {
         overview.forEach { line -> assertTrue(line, sentences.any { line.removeSuffix("。") == it.removeSuffix("。") }) }
     }
 
+    @Test fun detailChangesHowMuchIsKept() {
+        val long = (0 until 80).map { i -> Segment(i * 3000L, i * 3000L + 3000, "議題${i % 20}の予算は第${i}案で進めることに決定します", "話者${i % 3 + 1}") }
+        for (section in listOf("概要", "決定事項")) {
+            val counts = SummaryDetail.entries.map { d ->
+                LocalSummary.summarize(long, "会議", d).body.substringAfter("## $section").substringBefore("## ").lines().count { it.startsWith("- ") }
+            }
+            assertTrue("$section $counts", counts[0] < counts[1] && counts[1] < counts[2])
+        }
+    }
+
     @Test fun interviewPairsQuestionsWithTheOtherSpeaker() {
         val interview = listOf(
             Segment(0, 3000, "What made you start this project?", "Host"),
