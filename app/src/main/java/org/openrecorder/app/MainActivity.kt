@@ -193,9 +193,11 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
     vm.modelsVersion.collectAsStateWithLifecycle().value // model readiness below
     LaunchedEffect(r.id) { vm.load(r.id) }
     DetailScreen(DetailState(r, levels, position, playing, options.playbackSpeed, options.skipSilence, busy,
-        vm.speechReady(), ai.transcriptionReady, ai.summaryReady, vm.llmReady(), all.map { it.folder }.filter(String::isNotBlank).distinct().sorted()),
+        vm.speechReady(), ai.transcriptionReady, ai.summaryReady, vm.llmReady(), all.map { it.folder }.filter(String::isNotBlank).distinct().sorted(),
+        options.summaryDetail),
         DetailActions(back = back, playPause = vm::togglePlay, seek = vm::seek,
             speed = { vm.setOptions(options.copy(playbackSpeed = it)) }, skipSilence = { vm.setOptions(options.copy(skipSilence = it)) },
+            summaryDetail = { vm.setOptions(options.copy(summaryDetail = it)) },
             favorite = { vm.favorite(r.id) }, rename = { vm.rename(r.id, it) }, move = { vm.moveToFolder(r.id, it) },
             trash = { vm.trash(listOf(r.id)); back() }, edit = { vm.stopPlayback(); go("editor/${r.id}") },
             enhance = { o: ProcessOptions -> vm.stopPlayback(); vm.process(r.id, o) { replace("detail/$it") } },
@@ -205,7 +207,8 @@ private fun Detail(vm: RecorderViewModel, r: Recording, all: List<Recording>, bu
                 "wav" -> vm.exportWav(r) { share(it, "audio/wav") }
                 else -> share(vm.exportText(r, kind), when (kind) { "srt", "srt-translation" -> "application/x-subrip"; "vtt", "vtt-translation" -> "text/vtt"; "summary" -> "text/markdown"; else -> "text/plain" })
             } },
-            transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, engine -> when (engine) { "api" -> vm.summarize(r.id, t); "llm" -> vm.summarizeWithLlm(r.id, t); else -> vm.summarizeLocal(r.id, t) } },
+            transcribe = { remote -> vm.transcribe(r.id, remote) }, summarize = { t, engine -> val d = options.summaryDetail
+                when (engine) { "api" -> vm.summarize(r.id, t, d); "llm" -> vm.summarizeWithLlm(r.id, t, d); else -> vm.summarizeLocal(r.id, t, d) } },
             translate = { language, remote -> vm.translate(r.id, language, remote) }, clearTranslation = { vm.clearTranslation(r.id) },
             addMark = { vm.mark(r.id, it) }, addPhoto = { pickPhoto(r.id, it) }, editMark = { m, t -> vm.updateMark(r.id, m, t) },
             deleteMark = { vm.deleteMark(r.id, it) }, photoFile = { runCatching { vm.repo.photoFile(it) }.getOrNull() },

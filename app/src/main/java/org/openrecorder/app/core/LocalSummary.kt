@@ -19,7 +19,7 @@ object LocalSummary {
     private val stopJa = setOf("場合", "部分", "今回", "感じ", "自分", "本当", "一応", "全然", "結構", "大体", "時間", "最初", "最後", "以上", "以下", "問題", "必要", "可能", "状況", "関係", "意味", "大丈夫", "ちょっと")
     private val stopEn = setOf("the", "and", "that", "this", "with", "have", "for", "you", "are", "was", "were", "but", "not", "they", "there", "what", "about", "would", "could", "should", "just", "like", "really", "think", "know", "yeah", "okay", "right", "going", "gonna", "then", "than", "them", "their", "from", "will", "your", "which", "when", "been", "into", "also", "some", "can", "our", "its", "it's", "i'm", "we're", "that's", "don't", "very", "much", "more", "here", "well", "because", "actually", "something", "things", "thing")
 
-    fun summarize(segments: List<Segment>, template: String): Result {
+    fun summarize(segments: List<Segment>, template: String, detail: SummaryDetail = SummaryDetail.Standard): Result {
         val sentences = split(segments)
         require(sentences.isNotEmpty()) { "要約できる文章がありません" }
         val ja = Text.mostlyCjk(sentences.joinToString("") { it.text })
@@ -27,14 +27,14 @@ object LocalSummary {
         sentences.forEach { s -> s.tokens.forEach { frequency[it] = (frequency[it] ?: 0) + 1 } }
         val keywords = frequency.entries.filter { it.value >= 2 || frequency.size < 8 }
             .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value * ln(1.0 + it.key.length) }.thenBy { it.key })
-            .map { it.key }.let(::dropContained).take(6)
+            .map { it.key }.let(::dropContained).take(maxOf(6, detail.count(6)))
         val scores = rank(sentences, frequency)
         val candidates = sentences.filter { it.text.length >= (if (ja) 8 else 25) }.ifEmpty { sentences }
-        val overviewCount = (sentences.size / 8).coerceIn(3, 7)
+        val overviewCount = detail.count((sentences.size / 8).coerceIn(3, 7)).coerceAtLeast(2)
         val overview = candidates.sortedByDescending { scores[it.index] }.take(overviewCount).sortedBy { it.index }
         val minLength = if (ja) 8 else 20
         fun pick(rule: Regex, limit: Int) = sentences.filter { rule.containsMatchIn(it.text) && it.text.length >= minLength }
-            .sortedByDescending { scores[it.index] }.take(limit).sortedBy { it.index }
+            .sortedByDescending { scores[it.index] }.take(detail.count(limit)).sortedBy { it.index }
         val h = if (ja) Headings.Ja else Headings.En
         val body = buildString {
             section(h.overview, overview.map { it.text })
@@ -43,11 +43,11 @@ object LocalSummary {
                     section(h.decisions, pick(decision, 10).map { it.text }, h.none)
                     section(h.actions, pick(action, 10).map { "[ ] " + withSpeaker(it) }, h.none)
                 }
-                "講義", "lecture" -> section(h.keyPoints, (pick(keyPoint, 8) + overview).distinct().sortedBy { it.index }.take(10).map { it.text })
-                "インタビュー", "interview" -> section(h.questions, questions(sentences, 8), h.none)
+                "講義", "lecture" -> section(h.keyPoints, (pick(keyPoint, 8) + overview).distinct().sortedBy { it.index }.take(detail.count(10)).map { it.text })
+                "インタビュー", "interview" -> section(h.questions, questions(sentences, detail.count(8)), h.none)
                 else -> section(h.keyPoints, pick(keyPoint, 6).map { it.text }, h.none)
             }
-            if (keywords.isNotEmpty()) append("## ${h.keywords}\n\n${keywords.joinToString(if (ja) "、" else ", ")}\n\n")
+            if (keywords.isNotEmpty()) append("## ${h.keywords}\n\n${keywords.take(detail.count(6)).joinToString(if (ja) "、" else ", ")}\n\n")
         }
         return Result(title(keywords, overview.firstOrNull()?.text ?: sentences.first().text, template, ja), body.trim() + "\n")
     }

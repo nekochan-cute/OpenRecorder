@@ -2,6 +2,7 @@ package org.openrecorder.app.data
 
 import android.content.Context
 import android.media.MicrophoneDirection
+import org.openrecorder.app.core.SummaryDetail
 
 /** The microphone settings a recording situation calls for. [zoom] matters only with a [direction]. */
 data class MicSettings(val direction: Int, val zoom: Float, val noise: Boolean, val voice: Boolean, val stereo: Boolean)
@@ -43,6 +44,7 @@ data class RecordingOptions(
     val playbackSpeed: Float = 1f,
     val skipSilence: Boolean = false,
     val mode: RecordingMode = RecordingMode.Custom,
+    val summaryDetail: SummaryDetail = SummaryDetail.Standard,
 ) {
     /** The microphone settings recordings use: the mode's, or in [RecordingMode.Custom] the user's own. */
     val mic get() = mode.mic ?: MicSettings(direction, zoom, noise, voice, channels == 2)
@@ -63,11 +65,13 @@ class RecordingPrefs(context: Context) {
         prefs.getBoolean("voice", false), prefs.getBoolean("noise", false), prefs.getBoolean("live", false),
         prefs.getInt("device", 0), prefs.getInt("direction", MicrophoneDirection.MIC_DIRECTION_UNSPECIFIED), prefs.getFloat("zoom", 0.5f),
         prefs.getFloat("speed", 1f), prefs.getBoolean("skip", false),
-        RecordingMode.entries.firstOrNull { it.name == prefs.getString("mode", null) } ?: RecordingMode.Custom)
+        RecordingMode.entries.firstOrNull { it.name == prefs.getString("mode", null) } ?: RecordingMode.Custom,
+        SummaryDetail.entries.firstOrNull { it.name == prefs.getString("summaryDetail", null) } ?: SummaryDetail.Standard)
 
     fun save(o: RecordingOptions) {
         prefs.edit().putInt("rate", o.sampleRate).putInt("channels", o.channels).putString("format", o.format).putBoolean("voice", o.voice)
             .putBoolean("noise", o.noise).putBoolean("live", o.live).putInt("device", o.device).putInt("direction", o.direction)
-            .putFloat("zoom", o.zoom).putFloat("speed", o.playbackSpeed).putBoolean("skip", o.skipSilence).putString("mode", o.mode.name).apply()
+            .putFloat("zoom", o.zoom).putFloat("speed", o.playbackSpeed).putBoolean("skip", o.skipSilence).putString("mode", o.mode.name)
+            .putString("summaryDetail", o.summaryDetail.name).apply()
     }
 }
