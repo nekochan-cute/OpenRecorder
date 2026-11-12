@@ -18,6 +18,10 @@ data class Recording(
     val marks: List<Mark> = emptyList(),
     val segments: List<Segment> = emptyList(),
     val summary: String = "",
+    /** How [summary] was made: template, [SummaryDetail] name and engine ("llm", "api" or "extract"). Empty when unknown. */
+    val summaryTemplate: String = "",
+    val summaryDetail: String = "",
+    val summaryEngine: String = "",
     /** Language code of [Segment.translation], empty when the transcript has not been translated. */
     val translationLanguage: String = "",
     val sourceId: String? = null,

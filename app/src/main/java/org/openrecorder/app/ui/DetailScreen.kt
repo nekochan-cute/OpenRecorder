@@ -62,8 +62,9 @@ class DetailActions(
     val favorite: () -> Unit = {}, val rename: (String) -> Unit = {}, val move: (String) -> Unit = {}, val trash: () -> Unit = {},
     val edit: () -> Unit = {}, val enhance: (ProcessOptions) -> Unit = {}, val share: (String) -> Unit = {},
     val transcribe: (remote: Boolean) -> Unit = {},
-    /** engine: "llm" on-device model, "api" AI service, "extract" sentence extraction. */
-    val summarize: (template: String, engine: String) -> Unit = { _, _ -> }, val summaryDetail: (SummaryDetail) -> Unit = {},
+    /** engine: "llm" on-device model, "api" AI service, "extract" sentence extraction; keepTitle leaves the recording's title alone. */
+    val summarize: (template: String, detail: SummaryDetail, engine: String, keepTitle: Boolean) -> Unit = { _, _, _, _ -> },
+    val summaryDetail: (SummaryDetail) -> Unit = {},
     val translate: (language: String, remote: Boolean) -> Unit = { _, _ -> }, val clearTranslation: () -> Unit = {},
     val addMark: (Long) -> Unit = {}, val addPhoto: (Long) -> Unit = {}, val editMark: (String, String) -> Unit = { _, _ -> },
     val deleteMark: (String) -> Unit = {}, val openPhoto: (String) -> Unit = {}, val photoFile: (String) -> File? = { null },
@@ -330,7 +331,8 @@ private val templates = listOf("会議", "講義", "インタビュー")
 @Composable
 private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript: () -> Unit) {
     val r = state.recording
-    var template by rememberSaveable { mutableStateOf(templates[0]) }
+    var template by rememberSaveable(r.id) { mutableStateOf(r.summaryTemplate.takeIf { it in templates } ?: templates[0]) }
+    var detail by rememberSaveable(r.id) { mutableStateOf(SummaryDetail.entries.firstOrNull { it.name == r.summaryDetail } ?: state.summaryDetail) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var engineMenu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -339,23 +341,32 @@ private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript:
         add("extract" to if (state.llm) "文を抜き出して要約" else "要約する")
         if (state.aiSummary) add("api" to "AIサービスで要約")
     }
+    // Switching template or detail remakes an existing summary the way it was made, keeping the title.
+    fun remake(t: String, d: SummaryDetail) {
+        if (r.summary.isBlank() || r.segments.isEmpty()) return
+        actions.summarize(t, d, r.summaryEngine.takeIf { e -> engines.any { it.first == e } } ?: engines[0].first, true)
+    }
     Column(Modifier.fillMaxSize().readable().verticalScroll(rememberScrollState())) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)) {
             templates.forEachIndexed { i, t ->
-                SegmentedButton(template == t, { template = t }, SegmentedButtonDefaults.itemShape(i, templates.size)) { Text(t) }
+                SegmentedButton(template == t, { if (template != t) { template = t; remake(t, detail) } }, SegmentedButtonDefaults.itemShape(i, templates.size),
+                    enabled = !state.busy) { Text(t) }
             }
         }
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             SummaryDetail.entries.forEachIndexed { i, d ->
-                SegmentedButton(state.summaryDetail == d, { actions.summaryDetail(d) }, SegmentedButtonDefaults.itemShape(i, SummaryDetail.entries.size)) { Text(d.label) }
+                SegmentedButton(detail == d, { if (detail != d) { detail = d; actions.summaryDetail(d); remake(template, d) } },
+                    SegmentedButtonDefaults.itemShape(i, SummaryDetail.entries.size), enabled = !state.busy) { Text(d.label) }
             }
         }
         when {
             r.segments.isEmpty() -> EmptyState(Icons.Rounded.AutoAwesome, "要約には文字起こしが必要です") { OutlinedButton(toTranscript) { Text("文字起こしへ") } }
             r.summary.isBlank() -> EmptyState(Icons.Rounded.AutoAwesome, "要約はまだありません") {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button({ actions.summarize(template, engines[0].first) }, enabled = !state.busy) { Text(if (engines[0].first == "llm") "要約する" else engines[0].second) }
-                    engines.drop(1).forEach { (engine, label) -> TextButton({ actions.summarize(template, engine) }, enabled = !state.busy) { Text(label) } }
+                    Button({ actions.summarize(template, detail, engines[0].first, false) }, enabled = !state.busy) {
+                        Text(if (engines[0].first == "llm") "要約する" else engines[0].second)
+                    }
+                    engines.drop(1).forEach { (engine, label) -> TextButton({ actions.summarize(template, detail, engine, false) }, enabled = !state.busy) { Text(label) } }
                 }
             }
             else -> {
@@ -377,7 +388,7 @@ private fun SummaryTab(state: DetailState, actions: DetailActions, toTranscript:
     }
     confirm?.let { engine ->
         AlertDialog({ confirm = null }, title = { Text("要約を作り直しますか？") }, text = { Text("今の要約とタイトルは置き換わります。") },
-            confirmButton = { TextButton({ confirm = null; actions.summarize(template, engine) }) { Text("作り直す") } },
+            confirmButton = { TextButton({ confirm = null; actions.summarize(template, detail, engine, false) }) { Text("作り直す") } },
             dismissButton = { TextButton({ confirm = null }) { Text("キャンセル") } })
     }
 }

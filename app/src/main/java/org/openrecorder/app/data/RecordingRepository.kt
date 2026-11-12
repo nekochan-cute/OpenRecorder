@@ -257,7 +257,7 @@ class RecordingRepository(private val context: Context) {
         put("durationMs",r.durationMs); put("sampleRate",r.sampleRate); put("channels",r.channels)
         put("folder",r.folder); put("favorite",r.favorite); put("deletedAt",r.deletedAt ?: JSONObject.NULL)
         put("summary",r.summary); put("sourceId",r.sourceId ?: JSONObject.NULL); put("unfinished",r.unfinished); put("translationLanguage",r.translationLanguage)
-        put("mode",r.mode)
+        put("mode",r.mode); put("summaryTemplate",r.summaryTemplate); put("summaryDetail",r.summaryDetail); put("summaryEngine",r.summaryEngine)
         put("peaks", JSONArray(r.peaks))
         put("marks",JSONArray().apply { r.marks.forEach { m -> put(JSONObject().apply {
             put("id",m.id); put("timeMs",m.timeMs); put("text",m.text); put("photo",m.photo ?: JSONObject.NULL)
@@ -273,7 +273,7 @@ class RecordingRepository(private val context: Context) {
             fileName = j.getString("fileName"), durationMs = j.optLong("durationMs"), sampleRate = j.optInt("sampleRate",48000), channels = j.optInt("channels",1),
             folder = j.optString("folder"), favorite = j.optBoolean("favorite"), deletedAt = if (j.isNull("deletedAt")) null else j.getLong("deletedAt"),
             summary = j.optString("summary"), translationLanguage = j.optString("translationLanguage"), sourceId = if(j.isNull("sourceId")) null else j.getString("sourceId"), unfinished = j.optBoolean("unfinished"),
-            mode = j.optString("mode"),
+            mode = j.optString("mode"), summaryTemplate = j.optString("summaryTemplate"), summaryDetail = j.optString("summaryDetail"), summaryEngine = j.optString("summaryEngine"),
             peaks = (0 until peaks.length()).map { peaks.getDouble(it).toFloat().coerceIn(0f,1f) },
             marks = (0 until marks.length()).map { marks.getJSONObject(it).let { m -> Mark(m.getString("id"),m.getLong("timeMs"),m.getString("text"),if(m.isNull("photo")) null else m.getString("photo")) } },
             segments = (0 until segments.length()).map { segments.getJSONObject(it).let { s -> Segment(s.getLong("startMs"),s.getLong("endMs"),s.getString("text"),s.optString("speaker"),s.optString("translation")) } })
