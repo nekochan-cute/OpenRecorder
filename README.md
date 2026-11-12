@@ -23,7 +23,7 @@ AI services (OpenRouter, Google AI Studio, OpenAI, Groq, OpenAI-compatible APIs)
 | Library | Folders, favourites, search, trash, import |
 | Transcription | Live captions and saved audio with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ReazonSpeech, Haas, SenseVoice; captions and saved audio can use different models) or an AI service; editable, tap to play |
 | Speakers | Speaker labels on the device, live and refined after recording; rename and fix |
-| Summary | On-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B, TinySwallow 1.5B), extractive summary or an AI service; meeting, lecture and interview templates; brief, standard or detailed |
+| Summary | On-device LLM ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM): Gemma 4 E2B, TinySwallow 1.5B), extractive summary or an AI service; meeting, lecture and interview templates; brief, standard or detailed; shown as Markdown |
 | Translation | Seven languages with the on-device LLM or an AI service; timestamps and speakers are kept |
 | Audio clean-up | Noise reduction, voice enhancement and loudness levelling, saved as a new recording |
 | Sharing | M4A, MP3 or WAV, transcript and translation, SRT or WebVTT, Markdown summary, marks |

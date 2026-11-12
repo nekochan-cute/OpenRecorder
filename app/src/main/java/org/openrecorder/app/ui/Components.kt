@@ -2,19 +2,12 @@ package org.openrecorder.app.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import org.openrecorder.app.ui.icons.CheckBoxOutlineBlank
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.LocalDate
@@ -59,54 +52,3 @@ fun dayLabel(epochMs: Long, today: LocalDate = LocalDate.now()): String {
 }
 
 fun timeOfDay(epochMs: Long): String = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("H:mm", Locale.ROOT))
-
-/** Renders the subset of Markdown that summaries use: headings, bullets, task items, numbered lists, quotes, bold. */
-@Composable
-fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    val type = MaterialTheme.typography
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        markdown.lines().forEach { raw ->
-            val line = raw.trimEnd()
-            val indent = raw.length - raw.trimStart().length
-            val t = line.trim()
-            when {
-                t.isEmpty() -> Spacer(Modifier.height(4.dp))
-                t.startsWith("#") -> Text(inline(t.trimStart('#').trim()), style = if (t.startsWith("# ")) type.titleLarge else type.titleMedium,
-                    modifier = Modifier.padding(top = 12.dp))
-                t.startsWith("- [ ]") || t.startsWith("- [x]") || t.startsWith("[ ]") -> Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Rounded.CheckBoxOutlineBlank, null, Modifier.padding(top = 3.dp).size(18.dp), tint = colors.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Text(inline(t.substringAfter("]").trim()), style = type.bodyLarge)
-                }
-                t.startsWith("- ") || t.startsWith("* ") || t.startsWith("・") -> Row(Modifier.padding(start = (indent * 6).dp)) {
-                    Text("•", style = type.bodyLarge, color = colors.onSurfaceVariant, modifier = Modifier.width(18.dp))
-                    Text(inline(t.removePrefix("- ").removePrefix("* ").removePrefix("・")), style = type.bodyLarge)
-                }
-                Regex("^\\d+[.)] ").containsMatchIn(t) -> Row {
-                    Text(t.substringBefore(' '), style = type.bodyLarge, color = colors.onSurfaceVariant, modifier = Modifier.width(26.dp))
-                    Text(inline(t.substringAfter(' ')), style = type.bodyLarge)
-                }
-                t.startsWith("Q. ") || t.startsWith("A. ") -> Row(Modifier.padding(start = if (t.startsWith("A")) 18.dp else 0.dp)) {
-                    Text(t.take(2), style = type.bodyLarge, fontWeight = FontWeight.Bold, color = if (t.startsWith("Q")) colors.primary else colors.onSurfaceVariant,
-                        modifier = Modifier.width(26.dp))
-                    Text(inline(t.drop(3)), style = type.bodyLarge)
-                }
-                t.startsWith(">") -> Text(inline(t.trimStart('>').trim()), style = type.bodyMedium, color = colors.onSurfaceVariant)
-                else -> Text(inline(t), style = type.bodyLarge)
-            }
-        }
-    }
-}
-
-private fun inline(text: String): AnnotatedString = buildAnnotatedString {
-    var rest = text
-    while (true) {
-        val start = rest.indexOf("**")
-        val end = if (start >= 0) rest.indexOf("**", start + 2) else -1
-        if (start < 0 || end < 0) { append(rest); break }
-        append(rest.substring(0, start))
-        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(rest.substring(start + 2, end)) }
-        rest = rest.substring(end + 2)
-    }
-}
