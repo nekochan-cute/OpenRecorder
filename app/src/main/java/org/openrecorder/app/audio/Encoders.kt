@@ -38,7 +38,8 @@ enum class RecordFormat(val extension: String, val mime: String, val label: Stri
     companion object {
         fun of(name: String) = entries.firstOrNull { it.name.equals(name, true) } ?: Wav
         fun ofFile(fileName: String) = when (fileName.substringAfterLast('.').lowercase()) { "m4a", "aac" -> Aac; "mp3" -> Mp3; else -> Wav }
-        fun bitRate(rate: Int, channels: Int) = if (rate <= 16000) 32_000 * channels else if (channels == 1) 96_000 else 160_000
+        fun bitRate(rate: Int, channels: Int, music: Boolean = false) =
+            if (rate <= 16000) 32_000 * channels else if (channels == 1) 96_000 else if (music) 192_000 else 160_000
     }
 }
 

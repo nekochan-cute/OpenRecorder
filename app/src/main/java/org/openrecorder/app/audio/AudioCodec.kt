@@ -101,14 +101,10 @@ object AudioCodec {
     }
 
     /** Encodes a 16-bit WAV to AAC-LC in an MP4 (.m4a) container. */
-    fun encodeAac(source: File, target: File, progress: (Float) -> Unit = {}): File {
+    fun encodeAac(source: File, target: File, music: Boolean = false, progress: (Float) -> Unit = {}): File {
         require(source.canonicalPath != target.canonicalPath)
         val wav = Wav.inspect(source)
-        val bitRate = when {
-            wav.sampleRate <= 16000 -> 32_000 * wav.channels
-            wav.channels == 1 -> 96_000
-            else -> 160_000
-        }
+        val bitRate = RecordFormat.bitRate(wav.sampleRate, wav.channels, music)
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, wav.sampleRate, wav.channels).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate)

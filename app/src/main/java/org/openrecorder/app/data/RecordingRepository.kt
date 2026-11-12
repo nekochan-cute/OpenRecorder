@@ -60,14 +60,14 @@ class RecordingRepository(private val context: Context) {
     }
     fun saveLevels(id: String, levels: ByteArray) = runCatching { File(levelsDir, "$id.bin").writeBytes(levels) }
 
-    /** Stores a rendered WAV as a new recording file in [format]; returns the file name and audio info. */
-    private fun store(id: String, rendered: File, format: RecordFormat, progress: (Float) -> Unit = {}): Pair<String, WavInfo> {
+    /** Stores a rendered WAV as a new recording file in [format] for a recording made in [mode]; returns the file name and audio info. */
+    private fun store(id: String, rendered: File, format: RecordFormat, mode: String, progress: (Float) -> Unit = {}): Pair<String, WavInfo> {
         val info = Wav.inspect(rendered)
         val target = File(audioDir, "$id.${format.extension}")
         try {
             when (format) {
                 RecordFormat.Wav -> check(rendered.renameTo(target) || run { rendered.copyTo(target, true); true })
-                RecordFormat.Aac -> AudioCodec.encodeAac(rendered, target, progress)
+                RecordFormat.Aac -> AudioCodec.encodeAac(rendered, target, mode == RecordingMode.Music.name, progress)
                 RecordFormat.Mp3 -> Mp3.encode(rendered, target, progress)
             }
         } finally { if (format != RecordFormat.Wav) rendered.delete() }
@@ -137,7 +137,7 @@ class RecordingRepository(private val context: Context) {
         require(!old.unfinished && old.deletedAt == null)
         val newId = UUID.randomUUID().toString()
         Wav.edit(wav(old), temp(newId), spans)
-        val (name, info) = store(newId, temp(newId), format(old))
+        val (name, info) = store(newId, temp(newId), format(old), old.mode)
         val r = old.copy(id = newId, title = old.title + "（編集）", fileName = name,
             createdAt = System.currentTimeMillis(), durationMs = info.durationMs,
             marks = Timeline.marks(old.marks, spans), segments = Timeline.segments(old.segments, spans),
@@ -179,7 +179,7 @@ class RecordingRepository(private val context: Context) {
         val source = wav(old)
         require(audioDir.usableSpace > source.length() * 2 + 32L * 1024 * 1024) { "空き容量が足りません" }
         AudioProcessor.process(source, temp(newId), options) { progress(it * 0.9f) }
-        val (name, info) = store(newId, temp(newId), format(old)) { progress(0.9f + it * 0.1f) }
+        val (name, info) = store(newId, temp(newId), format(old), old.mode) { progress(0.9f + it * 0.1f) }
         val r = old.copy(id = newId, title = old.title + "（音声処理）", fileName = name, createdAt = System.currentTimeMillis(),
             durationMs = info.durationMs, sourceId = old.id, favorite = false, peaks = emptyList())
         try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
@@ -196,13 +196,14 @@ class RecordingRepository(private val context: Context) {
         val infos = wavs.map { Wav.inspect(it) }
         val newId = UUID.randomUUID().toString()
         Concat.join(wavs, temp(newId), infos.maxOf { it.sampleRate }, infos.maxOf { it.channels }) { progress(0.3f + it * 0.6f) }
-        val (name, info) = store(newId, temp(newId), format(parts.first())) { progress(0.9f + it * 0.1f) }
+        val mode = parts.map { it.mode }.distinct().singleOrNull().orEmpty()
+        val (name, info) = store(newId, temp(newId), format(parts.first()), mode) { progress(0.9f + it * 0.1f) }
         val offsets = Concat.offsets(infos.map { it.durationMs })
         val r = Recording(id = newId, title = "${parts.first().title}（結合）", fileName = name, durationMs = info.durationMs,
             sampleRate = info.sampleRate, channels = info.channels, folder = parts.first().folder,
             marks = parts.zip(offsets).flatMap { (p, o) -> p.marks.map { it.copy(timeMs = it.timeMs + o) } },
             segments = parts.zip(offsets).flatMap { (p, o) -> p.segments.map { it.copy(startMs = it.startMs + o, endMs = it.endMs + o) } },
-            mode = parts.map { it.mode }.distinct().singleOrNull().orEmpty())
+            mode = mode)
         try { add(r) } catch (e: Exception) { File(audioDir, name).delete(); throw e }
         return r
     }

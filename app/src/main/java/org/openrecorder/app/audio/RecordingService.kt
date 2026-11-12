@@ -172,7 +172,7 @@ class RecordingService : Service() {
             val r = repo.create(rate,channels,format); id = r.id
             sink = when(format) {
                 RecordFormat.Wav -> WavSink(repo.file(r), rate, channels)
-                RecordFormat.Aac -> ThreadedSink(AdtsSink(repo.file(r), rate, channels))
+                RecordFormat.Aac -> ThreadedSink(AdtsSink(repo.file(r), rate, channels, RecordFormat.bitRate(rate, channels, mode == RecordingMode.Music)))
                 RecordFormat.Mp3 -> ThreadedSink(Mp3Sink(repo.file(r), rate, channels))
             }
             mutableState.value = CaptureState(id = id, noiseReduction = suppressor?.enabled == true, directional = directional,

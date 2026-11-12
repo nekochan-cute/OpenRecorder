@@ -238,7 +238,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun exportAac(r: Recording, done: (File) -> Unit) = task("変換中") {
         val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")
         if(repo.format(r) == org.openrecorder.app.audio.RecordFormat.Aac) repo.file(r).copyTo(out, overwrite = true)
-        else AudioCodec.encodeAac(repo.wav(r),out) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
+        else AudioCodec.encodeAac(repo.wav(r), out, r.mode == org.openrecorder.app.data.RecordingMode.Music.name) { p -> busy.value = "変換中 ${(p*100).toInt()}%" }
         withContext(Dispatchers.Main) { done(out) }
     }
     fun exportMp3(r: Recording, done: (File) -> Unit) = task("変換中") {
