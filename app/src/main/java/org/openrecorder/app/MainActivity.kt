@@ -34,6 +34,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -79,8 +80,10 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
     }
     val route = stack.last()
     fun go(r: String) { stack.add(r) }
-    fun back() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    fun replace(r: String) { stack[stack.lastIndex] = r }
+    val saved = rememberSaveableStateHolder()
+    fun forget(r: String) { if (r !in stack) saved.removeState(r) }
+    fun back() { if (stack.size > 1) forget(stack.removeAt(stack.lastIndex)) }
+    fun replace(r: String) { forget(stack.set(stack.lastIndex, r)) }
     BackHandler(stack.size > 1 && route != "ai") { vm.stopPlayback(); back() }
 
     val snackbar = remember { SnackbarHostState() }
@@ -123,7 +126,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
     fun pickPhoto(id: String, at: Long) { photoTarget = id to at; photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
 
     Box(Modifier.fillMaxSize()) {
-        AnimatedContent(route, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "route") { current ->
+        AnimatedContent(route, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "route") { current -> saved.SaveableStateProvider(current) {
             val id = current.substringAfter('/', "")
             when {
                 current == "setup" -> {
@@ -188,7 +191,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                         senseVoiceLanguage = vm::chooseSenseVoiceLanguage, chooseSpeech = vm::chooseSpeechModel))
                 }
             }
-        }
+        } }
         busy?.let { label ->
             Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 72.dp), shape = CircleShape,
                 color = MaterialTheme.colorScheme.inverseSurface, shadowElevation = 4.dp) {
