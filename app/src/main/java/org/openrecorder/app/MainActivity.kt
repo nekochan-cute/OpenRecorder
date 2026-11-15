@@ -74,7 +74,9 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
     val capture by vm.capture.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
-    val stack = rememberSaveable(saver = listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>({ it.toList() }, { it.toMutableStateList() })) { mutableStateListOf("library") }
+    val stack = rememberSaveable(saver = listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>({ it.toList() }, { it.toMutableStateList() })) {
+        mutableStateListOf(if (vm.setupNeeded) "setup" else "library")
+    }
     val route = stack.last()
     fun go(r: String) { stack.add(r) }
     fun back() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
@@ -99,6 +101,13 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))) }
     }
     fun record() = permissions.launch(buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }.toTypedArray())
+    fun granted(permission: String) = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    var permissionsAsked by remember { mutableIntStateOf(0) }
+    var afterPermissions by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val setupPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        permissionsAsked++; afterPermissions?.invoke(); afterPermissions = null
+    }
+    fun finishSetup() { vm.finishSetup(); if (stack.size > 1) back() else replace("library") }
     val importAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.import(uri, displayName(context, uri)?.substringBeforeLast('.') ?: "取り込んだ音声")
     }
@@ -117,6 +126,19 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
         AnimatedContent(route, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "route") { current ->
             val id = current.substringAfter('/', "")
             when {
+                current == "setup" -> {
+                    val downloads by vm.downloads.collectAsStateWithLifecycle()
+                    val options by vm.options.collectAsStateWithLifecycle()
+                    vm.modelsVersion.collectAsStateWithLifecycle().value
+                    val mic = remember(permissionsAsked) { granted(Manifest.permission.RECORD_AUDIO) }
+                    val notifications = remember(permissionsAsked) { if (Build.VERSION.SDK_INT >= 33) granted(Manifest.permission.POST_NOTIFICATIONS) else null }
+                    SetupScreen(SetupState(mic, notifications, org.openrecorder.app.ai.ModelCatalog.all.filter(vm.models::installed).map { it.id }.toSet(), downloads,
+                        vm.speechReady(), options.live, options.mode, org.openrecorder.app.ai.LocalLlm.supported),
+                        SetupActions(requestPermissions = { done -> afterPermissions = done
+                            setupPermissions.launch(buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }.toTypedArray()) },
+                            downloadSpeech = vm::downloadPreset, live = { vm.setOptions(vm.options.value.copy(live = it)) }, mode = vm::setMode,
+                            downloadLlm = vm::downloadLlm, aiService = { finishSetup(); go("ai") }, finish = ::finishSetup))
+                }
                 current == "library" -> LibraryScreen(all, capture, vm.options.collectAsStateWithLifecycle().value.mode, LibraryActions(
                     open = { vm.load(it); go("detail/$it") }, record = ::record, showRecording = { go("record") },
                     import = { importAudio.launch(arrayOf("audio/*", "application/ogg")) }, trash = { go("trash") }, settings = { go("settings") },
@@ -145,7 +167,7 @@ private fun App(vm: RecorderViewModel, share: (File, String) -> Unit, openUrl: (
                     val modelsLabel = listOfNotNull(speech?.title, vm.models.active(org.openrecorder.app.ai.ModelKind.Llm)?.title).joinToString("・").ifBlank { "未ダウンロード" }
                     SettingsScreen(options, inputDevices(context), vm.speechReady(), modelsLabel, ai, BuildConfig.VERSION_NAME,
                         SettingsActions(back = ::back, options = vm::setOptions, models = { go("models") }, ai = { go("ai") }, licenses = { go("licenses") },
-                            source = { openUrl("https://github.com/nekochan-cute/OpenRecorder") }))
+                            source = { openUrl("https://github.com/nekochan-cute/OpenRecorder") }, setup = { go("setup") }))
                 }
                 current == "ai" -> {
                     val ai by vm.ai.collectAsStateWithLifecycle()

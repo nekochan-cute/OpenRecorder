@@ -105,7 +105,7 @@ private fun ModelItem(row: ModelRow, actions: ModelActions, chooseable: Boolean,
         headlineContent = { Text(spec.title) },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(listOf(spec.detail, size(spec.size).takeIf { spec.size > 0 }).filterNotNull().joinToString("  ·  "), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(listOf(spec.detail, sizeLabel(spec.size).takeIf { spec.size > 0 }).filterNotNull().joinToString("  ·  "), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (d != null && d.error == null) LinearProgressIndicator({ d.progress }, Modifier.fillMaxWidth())
                 d?.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -128,4 +128,4 @@ private fun ModelItem(row: ModelRow, actions: ModelActions, chooseable: Boolean,
     )
 }
 
-private fun size(bytes: Long) = if (bytes >= 1_000_000_000) "%.1f GB".format(Locale.ROOT, bytes / 1e9) else "%d MB".format(Locale.ROOT, bytes / 1_000_000)
+fun sizeLabel(bytes: Long) = if (bytes >= 1_000_000_000) "%.1f GB".format(Locale.ROOT, bytes / 1e9) else "%d MB".format(Locale.ROOT, bytes / 1_000_000)

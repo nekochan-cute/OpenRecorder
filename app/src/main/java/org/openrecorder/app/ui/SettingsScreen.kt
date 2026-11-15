@@ -24,7 +24,7 @@ import android.media.MicrophoneDirection
 
 class SettingsActions(
     val back: () -> Unit = {}, val options: (RecordingOptions) -> Unit = {}, val models: () -> Unit = {},
-    val ai: () -> Unit = {}, val licenses: () -> Unit = {}, val source: () -> Unit = {},
+    val ai: () -> Unit = {}, val licenses: () -> Unit = {}, val source: () -> Unit = {}, val setup: () -> Unit = {},
 )
 
 private val formats = listOf("aac" to "AAC（M4A）", "mp3" to "MP3", "wav" to "WAV（無圧縮）")
@@ -68,6 +68,7 @@ fun SettingsScreen(o: RecordingOptions, devices: List<Pair<Int, String>>, speech
             SettingRow("AIサービス", aiSummary(ai), Icons.Rounded.AutoAwesome, chevron = true, onClick = actions.ai)
 
             SectionHeader("このアプリについて")
+            SettingRow("セットアップをやり直す", null, Icons.Rounded.Refresh, chevron = true, onClick = actions.setup)
             SettingRow("バージョン", version, Icons.Rounded.Info)
             SettingRow("ライセンス", null, Icons.Rounded.Description, chevron = true, onClick = actions.licenses)
             SettingRow("ソースコード", "github.com/nekochan-cute/OpenRecorder", Icons.Rounded.Code, external = true, onClick = actions.source)

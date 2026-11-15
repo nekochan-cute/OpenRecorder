@@ -63,6 +63,16 @@ object ModelCatalog {
     fun byId(id: String) = (all + customLlm).firstOrNull { it.id == id }
 }
 
+/** Model sets offered in the first-launch setup; each also brings speech detection and speaker labels. */
+enum class SpeechPreset(val label: String, val detail: String, val live: ModelSpec, val file: ModelSpec) {
+    Standard("標準", "ReazonSpeech v2。日本語。字幕と録音後の文字起こしに同じモデルを使います", ModelCatalog.reazon, ModelCatalog.reazon),
+    Accurate("高精度", "字幕はReazonSpeech v2 高精度、録音後はHaas-ja v1.0。日本語。処理が重くなります", ModelCatalog.reazonFp32, ModelCatalog.haas),
+    Multilingual("多言語", "SenseVoice Small。日本語・英語・中国語・韓国語・広東語", ModelCatalog.senseVoice, ModelCatalog.senseVoice);
+
+    val models get() = listOf(live, file, ModelCatalog.vad, ModelCatalog.speaker).distinct()
+    val size get() = models.sumOf { it.size }
+}
+
 /** Installed models live in `files/models/<id>/`; a model counts as installed once every file is complete. */
 class ModelStore(private val context: Context) {
     val root = File(context.filesDir, "models").apply { mkdirs() }

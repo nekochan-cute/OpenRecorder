@@ -112,4 +112,13 @@ class ScreenshotTest {
         DetailScreen(DetailState(r, levels, 9_000, false, llm = true), DetailActions(), initialTab = 1)
     }
     @Test fun trash() = snap("11-trash") { TrashScreen(library.take(2).map { it.copy(deletedAt = now) }, {}, {}, {}, {}) }
+    @Test fun setupWelcome() = snap("14-setup-welcome") { SetupScreen(SetupState(), SetupActions()) }
+    @Test fun setupPermissions() = snap("15-setup-permissions") { SetupScreen(SetupState(micGranted = true), SetupActions(), initialStep = 1) }
+    @Test fun setupSpeech() = snap("16-setup-speech") {
+        SetupScreen(SetupState(installed = setOf(ModelCatalog.vad.id, ModelCatalog.speaker.id),
+            downloads = mapOf(ModelCatalog.reazon.id to org.openrecorder.app.ai.DownloadState(0.4f))), SetupActions(), initialStep = 2)
+    }
+    @Test fun setupLive() = snap("17-setup-live") { SetupScreen(SetupState(), SetupActions(), initialStep = 3) }
+    @Test fun setupMode() = snap("18-setup-mode") { SetupScreen(SetupState(mode = RecordingMode.Auto), SetupActions(), initialStep = 4) }
+    @Test fun setupSummary() = snap("19-setup-summary") { SetupScreen(SetupState(installed = setOf(ModelCatalog.swallow.id)), SetupActions(), initialStep = 5) }
 }

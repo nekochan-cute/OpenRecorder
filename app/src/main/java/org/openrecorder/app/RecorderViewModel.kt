@@ -234,6 +234,22 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun speechReady() = SpeechEngine.ready(models)
     fun speakerReady() = models.installed(ModelCatalog.speaker)
     fun llmReady() = LocalLlm.supported && LocalLlm.ready(app)
+    private val setup = org.openrecorder.app.data.SetupPrefs(app)
+    /** First launch of a new install: nothing recorded or downloaded and the setup not done yet. */
+    val setupNeeded = setup.needed(repo.recordings.value.isNotEmpty() || (ModelCatalog.all + ModelCatalog.customLlm).any(models::installed))
+    fun finishSetup() = setup.finish()
+    private fun downloading(spec: ModelSpec) = downloads.value[spec.id]?.let { it.error == null } == true
+    /** Uses the preset's models for captions and saved recordings, downloading those that are missing. */
+    fun downloadPreset(preset: SpeechPreset) {
+        models.choose(SpeechUse.Live, preset.live); models.choose(SpeechUse.File, preset.file)
+        preset.models.filter { !models.installed(it) && !downloading(it) }.forEach(::download)
+        modelsVersion.value++
+    }
+    fun downloadLlm(spec: ModelSpec) {
+        models.choose(spec)
+        if (!models.installed(spec) && !downloading(spec)) download(spec)
+        modelsVersion.value++
+    }
     /** AAC/M4A copy for sharing: roughly a tenth of the WAV size. */
     fun exportAac(r: Recording, done: (File) -> Unit) = task("変換中") {
         val out = File(app.cacheDir,"exports").apply { mkdirs() }.resolve("${safeName(r.title)}.m4a")
