@@ -235,8 +235,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     fun speakerReady() = models.installed(ModelCatalog.speaker)
     fun llmReady() = LocalLlm.supported && LocalLlm.ready(app)
     private val setup = org.openrecorder.app.data.SetupPrefs(app)
-    /** First launch of a new install: nothing recorded or downloaded and the setup not done yet. */
+    /** First launch of a new install: nothing recorded or downloaded and the setup not done yet. It starts in the automatic mode. */
     val setupNeeded = setup.needed(repo.recordings.value.isNotEmpty() || (ModelCatalog.all + ModelCatalog.customLlm).any(models::installed))
+    init { if (setupNeeded && !prefs.modeSaved()) setMode(org.openrecorder.app.data.RecordingMode.Auto) }
     fun finishSetup() = setup.finish()
     private fun downloading(spec: ModelSpec) = downloads.value[spec.id]?.let { it.error == null } == true
     /** Uses the preset's models for captions and saved recordings, downloading those that are missing. */

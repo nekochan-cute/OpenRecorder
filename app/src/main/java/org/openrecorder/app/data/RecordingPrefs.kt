@@ -75,6 +75,9 @@ class RecordingPrefs(context: Context) {
         RecordingMode.of(prefs.getString("mode", null)),
         SummaryDetail.entries.firstOrNull { it.name == prefs.getString("summaryDetail", null) } ?: SummaryDetail.Standard)
 
+    /** False until settings are first saved, so a new install can start in another mode than [RecordingMode.Custom]. */
+    fun modeSaved() = prefs.contains("mode")
+
     fun save(o: RecordingOptions) {
         prefs.edit().putInt("rate", o.sampleRate).putInt("channels", o.channels).putString("format", o.format).putBoolean("voice", o.voice)
             .putBoolean("noise", o.noise).putBoolean("live", o.live).putInt("device", o.device).putInt("direction", o.direction)
