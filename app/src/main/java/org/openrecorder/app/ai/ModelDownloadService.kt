@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -112,7 +113,7 @@ class ModelDownloadService : Service() {
                         if (!append) out.setLength(0)
                         out.seek(out.length())
                         response.body!!.byteStream().use { input ->
-                            val buffer = ByteArray(1 shl 16); var last = 0L
+                            val buffer = ByteArray(1 shl 16); var last = 0L; var shown = 0L
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 val n = input.read(buffer); if (n < 0) break
@@ -121,7 +122,8 @@ class ModelDownloadService : Service() {
                                     last = done
                                     val p = done.toFloat() / spec.size
                                     mutable.update { it + (spec.id to DownloadState(p)) }
-                                    getSystemService(NotificationManager::class.java).notify(20, notification(spec.title, p))
+                                    val now = SystemClock.elapsedRealtime()
+                                    if (now - shown >= 500) { shown = now; getSystemService(NotificationManager::class.java).notify(20, notification(spec.title, p)) }
                                 }
                             }
                         }
