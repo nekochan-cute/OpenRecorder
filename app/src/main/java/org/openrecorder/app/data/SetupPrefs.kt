@@ -7,10 +7,11 @@ import androidx.core.content.edit
 class SetupPrefs(context: Context) {
     private val prefs = context.getSharedPreferences("setup", Context.MODE_PRIVATE)
 
-    /** [used]: there are recordings or downloaded models, so this is not a new install and counts as set up. */
+    /** [used]: there are recordings or downloaded models. Unless the setup was already started, that is not a new install. */
     fun needed(used: Boolean): Boolean {
         if (prefs.getBoolean("done", false)) return false
-        if (used) { finish(); return false }
+        if (used && !prefs.getBoolean("started", false)) { finish(); return false }
+        prefs.edit { putBoolean("started", true) }
         return true
     }
 

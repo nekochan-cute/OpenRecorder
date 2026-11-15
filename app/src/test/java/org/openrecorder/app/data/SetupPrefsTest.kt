@@ -20,6 +20,13 @@ class SetupPrefsTest {
         assertFalse(SetupPrefs(context).needed(used = false))
     }
 
+    @Test fun aStartedSetupStaysAfterModelsAreDownloadedInIt() {
+        assertTrue(SetupPrefs(context).needed(used = false))
+        assertTrue(SetupPrefs(context).needed(used = true))
+        SetupPrefs(context).finish()
+        assertFalse(SetupPrefs(context).needed(used = true))
+    }
+
     @Test fun anInstallInUseNeverSeesItEvenAfterEverythingIsDeleted() {
         assertFalse(SetupPrefs(context).needed(used = true))
         assertFalse(SetupPrefs(context).needed(used = false))
